@@ -1,0 +1,160 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { apiService, AuthResponse, LoginRequest, RegisterRequest } from '../services/apiService';
+import { toast } from 'react-toastify';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  isPremium: boolean;
+  isAdmin: boolean;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  clearError: () => void;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  isLoading: false,
+  isAuthenticated: false,
+  error: null,
+  login: async () => {},
+  register: async () => {},
+  logout: async () => {},
+  clearError: () => {},
+});
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const isAuthenticated = user !== null;
+
+  useEffect(() => {
+    const validateAuth = async () => {
+      setIsLoading(true);
+      try {
+        const response = await apiService.validateToken();
+        if (response.success && response.user) {
+          setUser(response.user);
+          console.log('✅ AuthContext: Token válido');
+        } else {
+          setUser(null);
+          apiService.clearAuthData();
+          console.log('🔴 AuthContext: Token inválido');
+        }
+      } catch (error) {
+        console.error('❌ AuthContext: Erro na validação do token', error);
+        setUser(null);
+        apiService.clearAuthData();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    validateAuth();
+  }, []);
+
+  const login = async (email: string, password: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      console.log('🔐 AuthContext: Iniciando login...');
+      const res = await apiService.login({ email, password });
+      console.log('📦 AuthContext: Resposta do login:', res.data);
+
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'Falha no login');
+      }
+
+      const { tokens, user: userData } = res.data.data;
+
+      if (!tokens?.accessToken) {
+        throw new Error('Token de acesso não recebido do servidor');
+      }
+
+      apiService.setAuthToken(tokens.accessToken);
+      setUser(userData);
+      toast.success('🎉 Login realizado com sucesso!');
+      console.log('✅ AuthContext: Login bem-sucedido');
+    } catch (err: any) {
+      console.error('❌ AuthContext: Erro no login:', err);
+      setUser(null);
+      setError(err.response?.data?.message || err.message || 'Erro ao fazer login');
+      apiService.clearAuthData();
+      toast.error(err.response?.data?.message || err.message || 'Erro ao fazer login');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const register = async (name: string, email: string, password: string): Promise<void> => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await apiService.register({ name, email, password });
+      if (!res.data?.success) {
+        throw new Error(res.data?.message || 'Falha no registro');
+      }
+      const { tokens, user: userData } = res.data.data;
+      apiService.setAuthToken(tokens.accessToken);
+      setUser(userData);
+      toast.success('🎉 Registro realizado com sucesso!');
+    } catch (err: any) {
+      console.error('❌ AuthContext: Erro no registro:', err);
+      setError(err.response?.data?.message || err.message || 'Erro ao registrar');
+      toast.error(err.response?.data?.message || err.message || 'Erro ao registrar');
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    try {
+      console.log('🔒 AuthContext: Logout iniciado');
+      await apiService.logout();
+    } catch (error) {
+      console.error('Erro no logout:', error);
+    } finally {
+      setUser(null);
+      apiService.clearAuthData();
+      toast.info('Você saiu da conta.');
+    }
+  };
+
+  const clearError = () => setError(null);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAuthenticated,
+        error,
+        login,
+        register,
+        logout,
+        clearError,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth deve ser usado dentro de um AuthProvider');
+  return context;
+};
