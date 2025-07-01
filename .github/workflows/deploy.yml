@@ -9,24 +9,7 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Use Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: 18
-
-      - name: Instalar dependências de backend & build
-        run: |
-          npm ci
-          npm run build
-
-      - name: Instalar dependências de frontend & build
-        run: |
-          cd frontend
-          npm ci
-          npm run build
+      # ... seus passos de build ...
 
   deploy:
     needs: build-and-test
@@ -39,8 +22,14 @@ jobs:
       - name: Configurar SSH
         uses: webfactory/ssh-agent@v0.8.0
         with:
-          # Segredo contendo sua chave privada no formato PEM
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # Atenção: usar bloco | para preservar quebras de linha do PEM
+          ssh-private-key: |
+            ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Debug SSH keys
+        run: |
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK"
+          ssh-add -l || echo "⚠️ nenhuma chave carregada ou formato inválido"
 
       - name: Adicionar VPS a hosts conhecidos
         run: |
@@ -52,4 +41,3 @@ jobs:
         run: |
           chmod +x ./deploy.sh
           ./deploy.sh
-

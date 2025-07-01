@@ -1,2 +1,8 @@
-# Ignorar logs
+node_modules/
 logs/
+.env
+*.log
+.cache/
+.ssh/
+*.dump
+*.zip
