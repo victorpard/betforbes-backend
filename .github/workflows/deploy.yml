@@ -4,35 +4,29 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch:   # permite disparar manualmente pelo botão “Run workflow”
 
 jobs:
-  build:
-    name: 🛠️ Build (opcional)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      # adicione aqui seus passos de build/test, se precisar
-
   deploy:
-    name: 🚀 Deploy via SSH
-    needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Start SSH agent
+      - name: Configure SSH agent
         uses: webfactory/ssh-agent@v0.8.0
         with:
+          # aqui coloca o nome exato do seu secret
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Adicionar servidor aos known_hosts
+      - name: Add server to known_hosts
         run: |
-          mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Executar script de deploy remoto
+      - name: Run remote deploy script
         run: |
           ssh root@${{ secrets.SERVER_IP }} "bash -s" < ./deploy.sh
+
+      - name: Post-deploy cleanup
+        run: echo "Deploy finished"
