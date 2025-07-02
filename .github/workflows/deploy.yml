@@ -8,23 +8,23 @@ on:
 
 jobs:
   build:
-    name: Build (caso precise)
+    name: 🛠️ Build (opcional)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      # passos de build/test opcionais
+      # adicione aqui seus passos de build/test, se precisar
 
   deploy:
-    name: Deploy via SSH
+    name: 🚀 Deploy via SSH
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Carregar chave SSH
-        uses: webfactory/ssh-agent@v0.8.0    # <— versão válida
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
@@ -33,6 +33,6 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Implantar no servidor
+      - name: Executar script de deploy remoto
         run: |
           ssh root@${{ secrets.SERVER_IP }} "bash -s" < ./deploy.sh
