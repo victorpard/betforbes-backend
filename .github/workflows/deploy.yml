@@ -1,23 +1,43 @@
+name: CI & Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
 jobs:
   build:
-    …
+    name: Build (se você precisar compilar algo)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # aqui você pode adicionar passos de build/test, ex:
+      # - name: Install dependencies
+      #   run: npm ci
+      # - name: Run tests
+      #   run: npm test
+
   deploy:
+    name: Deploy via SSH
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Configurar o agente SSH
+      - name: Carregar chave SSH
         uses: webfactory/ssh-agent@v0.8.1
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Garantir hosts conhecidos
+      - name: Adicionar servidor aos known_hosts
         run: |
-          echo "${{ secrets.SERVER_IP }} $(echo your.server.hostname)" >> ~/.ssh/known_hosts
-          # ou simplesmente:
+          mkdir -p ~/.ssh
           ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
 
-      - name: Implantar
-        run: ssh root@${{ secrets.SERVER_IP }} "bash -s" < ./deploy.sh
+      - name: Implantar no servidor
+        run: |
+          ssh root@${{ secrets.SERVER_IP }} "bash -s" < ./deploy.sh
