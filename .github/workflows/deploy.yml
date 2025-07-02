@@ -7,12 +7,13 @@ on:
 
 jobs:
   build-and-test:
+    name: 🚧 Build & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Use Node.js
+      - name: Use Node.js 18
         uses: actions/setup-node@v3
         with:
           node-version: '18'
@@ -29,6 +30,7 @@ jobs:
           npm run build
 
   deploy:
+    name: 🚀 Deploy to VPS
     needs: build-and-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -36,7 +38,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # DEBUG #1: verifica o header da chave privada
+      # DEBUG #1: verifica o header da chave
       - name: DEBUG: key header
         run: echo "${{ secrets.SSH_PRIVATE_KEY }}" | head -n1
 
@@ -45,7 +47,7 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # DEBUG #2: lista as chaves que o agente carregou
+      # DEBUG #2: lista identidades carregadas no agente
       - name: DEBUG: list agent identities
         run: ssh-add -l || echo "nenhuma identidade carregada"
 
@@ -55,7 +57,7 @@ jobs:
           echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # DEBUG #3: tentativa de SSH verbosa contra o servidor
+      # DEBUG #3: testa SSH verboso
       - name: DEBUG: verbose SSH to server
         run: ssh -vvv root@84.247.129.103 exit || true
 
