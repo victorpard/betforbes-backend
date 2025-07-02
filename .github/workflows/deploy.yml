@@ -2,31 +2,43 @@ name: CI & Deploy
 
 on:
   push:
-    branches:
-      - main
-  workflow_dispatch:   # permite disparar manualmente pelo botão “Run workflow”
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    runs-on: ubuntu-24.04
-
+  build-and-test:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with: { node-version: '18' }
+      - run: |
+          npm ci
+          npm run build
+      - run: |
+          cd frontend
+          npm ci
+          npm run build
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
 
       - name: Configure SSH agent
         uses: webfactory/ssh-agent@v0.8.0
         with:
-          # aqui coloca o nome exato do seu secret
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add server to known_hosts
+      - name: Add known hosts
         run: |
-          ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
-      - name: Run remote deploy script
+      - name: Run deploy script
         run: |
-          ssh root@${{ secrets.SERVER_IP }} "bash -s" < ./deploy.sh
-
-      - name: Post-deploy cleanup
-        run: echo "Deploy finished"
+          chmod +x ./deploy.sh
+          ./deploy.sh
