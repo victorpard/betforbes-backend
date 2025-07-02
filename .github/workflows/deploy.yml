@@ -8,17 +8,12 @@ on:
 
 jobs:
   build:
-    name: Build (se você precisar compilar algo)
+    name: Build (caso precise)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      # aqui você pode adicionar passos de build/test, ex:
-      # - name: Install dependencies
-      #   run: npm ci
-      # - name: Run tests
-      #   run: npm test
+      # passos de build/test opcionais
 
   deploy:
     name: Deploy via SSH
@@ -29,7 +24,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Carregar chave SSH
-        uses: webfactory/ssh-agent@v0.8.1
+        uses: webfactory/ssh-agent@v0.8.0    # <— versão válida
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
