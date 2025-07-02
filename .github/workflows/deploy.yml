@@ -7,7 +7,6 @@ on:
 
 jobs:
   build-and-test:
-    name: 🚧 Build & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -30,38 +29,23 @@ jobs:
           npm run build
 
   deploy:
-    name: 🚀 Deploy to VPS
     needs: build-and-test
-    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      # DEBUG #1: verifica o header da chave
-      - name: DEBUG: key header
-        run: echo "${{ secrets.SSH_PRIVATE_KEY }}" | head -n1
 
       - name: Configure SSH agent
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      # DEBUG #2: lista identidades carregadas no agente
-      - name: DEBUG: list agent identities
-        run: ssh-add -l || echo "nenhuma identidade carregada"
-
-      - name: Add known hosts
+      - name: Add remote server to known_hosts
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
+          ssh-keyscan -H 84.247.129.103 >> ~/.ssh/known_hosts
 
-      # DEBUG #3: testa SSH verboso
-      - name: DEBUG: verbose SSH to server
-        run: ssh -vvv root@84.247.129.103 exit || true
-
-      - name: Run deploy script
+      - name: Run deploy.sh on remote
         run: |
-          chmod +x ./deploy.sh
-          ./deploy.sh
+          ssh root@84.247.129.103 "bash -s" < ./deploy.sh
