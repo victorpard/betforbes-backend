@@ -10,15 +10,13 @@ import { rateLimiter } from './middlewares/rateLimiter';
 import { authenticateToken } from './middlewares/auth';
 import authRoutes from './routes/auth';
 import userRoutes from './modules/users/user.routes';
-import affiliateRoutes from './modules/affiliates/affiliate.routes';
-import marketRoutes from './routes/market.routes';  // ← import da rota de mercados
 import { logger } from './utils/logger';
 import prisma from './lib/prisma';
 
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '4001', 10);
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middlewares globais
 app.set('trust proxy', true);
@@ -37,11 +35,7 @@ app.use(rateLimiter);
 
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-  });
+  res.json({ status: 'OK', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
 // Swagger
@@ -51,9 +45,7 @@ const swaggerOptions = {
     info: { title: 'BetForbes API', version: '1.0.0' },
     servers: [{ url: process.env.API_URL || `http://localhost:${PORT}` }],
     components: {
-      securitySchemes: {
-        bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      },
+      securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } },
     },
     security: [{ bearerAuth: [] }],
   },
@@ -66,31 +58,23 @@ app.get('/api-docs.json', (_req, res) => res.json(swaggerSpec));
 // Rotas da API
 app.use('/api/auth', authRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
-app.use('/api/affiliates', authenticateToken, affiliateRoutes);
-app.use('/api/markets', marketRoutes);  // ← registro da rota de mercados
 
-// 404 handler (deve vir depois de todas as rotas)
+// 404 handler
 app.use('*', (req: Request, res: Response) => {
-  res
-    .status(404)
-    .json({ success: false, message: `Rota não encontrada: ${req.originalUrl}` });
+  res.status(404).json({ success: false, message: `Rota não encontrada: ${req.originalUrl}` });
 });
 
 // Error handler
-app.use(
-  (err: any, _req: Request, res: Response, _next: NextFunction) => {
-    errorHandler(err, _req, res, _next);
-  }
-);
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  errorHandler(err, _req, res, _next);
+});
 
 // Inicia servidor
 async function startServer() {
   try {
     await prisma.$connect();
     logger.info('Conectado ao banco de dados');
-    app.listen(PORT, () =>
-      logger.info(`Servidor rodando na porta ${PORT}`)
-    );
+    app.listen(PORT, () => logger.info(`Servidor rodando na porta ${PORT}`));
   } catch (err) {
     logger.error('Erro ao iniciar servidor:', err);
     process.exit(1);

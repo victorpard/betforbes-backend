@@ -15,17 +15,17 @@ interface AuthenticatedRequest extends Request {
 
 class UserController {
   /**
-   * Obter perfil do usuário autenticado
+   * Obter perfil do usuário autenticado (com afiliado)
    */
   async getProfile(req: AuthenticatedRequest, res: Response) {
     try {
       const userId = req.user?.id;
-      
+
       if (!userId) {
         throw createError('Usuário não autenticado', 401, 'UNAUTHORIZED');
       }
 
-      const user = await userService.getProfile(userId);
+      const user = await userService.getProfileWithAffiliate(userId);
 
       res.json({
         success: true,
@@ -192,4 +192,3 @@ class UserController {
 }
 
 export default new UserController();
-

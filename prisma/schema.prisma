@@ -1,3 +1,6 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,72 +10,50 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum ConfigType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+}
+
 model User {
-  id                      String                   @id @default(uuid())
-  name                    String
-  email                   String                   @unique
-  password                String
-  isVerified              Boolean                  @default(false)
-  isActive                Boolean                  @default(true)
-  role                    Role                     @default(USER)
-  avatar                  String?
-  phone                   String?
-  birthDate               DateTime?
-  createdAt               DateTime                 @default(now())
-  updatedAt               DateTime                 @updatedAt
-  lastLoginAt             DateTime?
-  balance                 Decimal                  @default(1000) @db.Decimal(18, 8)  // saldo inicial fictício de 1 000
-  referralCode            String?                  @unique
-  referredBy              String?
+  id          String    @id @default(uuid())
+  name        String
+  email       String    @unique
+  password    String
+  isVerified  Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  role        Role      @default(USER)
+  avatar      String?
+  phone       String?
+  birthDate   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+  balance     Decimal   @default(1000) @db.Decimal(18, 8)
+
+  referralCode String? @unique
+  referredBy   String?
+  referrer     User?   @relation("AffiliateRelation", fields: [referredBy], references: [id])
+  referrals    User[]  @relation("AffiliateRelation")
+
+  verificationToken String?
+  tokenExpiry       DateTime?
+  emailVerifiedAt   DateTime?
+
   passwordResetTokens     EmailVerificationToken[] @relation("UserEmailVerificationTokens")
   emailVerificationTokens PasswordResetToken[]     @relation("UserPasswordResetTokens")
   sessions                UserSession[]
-  orders                  Order[]                  // ← Relação inversa para Order
+  orders                  Order[]
 
   @@map("users")
-}
-
-model Order {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  asset       String   // ex: "BTC-USDT"
-  type        String   // "market" ou "limit"
-  amount      Decimal  @db.Decimal(18, 8) // valor apostado
-  leverage    Int      // alavancagem: 1,2,5,...50
-  direction   String   // "LONG" ou "SHORT"
-  entryPrice  Decimal  @default(0) @db.Decimal(18, 8)
-  exitPrice   Decimal? @db.Decimal(18, 8)
-  status      String   @default("OPEN")    // OPEN ou CLOSED
-  profitLoss  Decimal? @db.Decimal(18, 8)
-  createdAt   DateTime @default(now())
-  closedAt    DateTime?
-
-  @@map("orders")
-}
-
-model PasswordResetToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  userId    String
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation("UserPasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("password_reset_tokens")
-}
-
-model EmailVerificationToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  userId    String
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-  user      User     @relation("UserEmailVerificationTokens", fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("email_verification_tokens")
 }
 
 model UserSession {
@@ -97,31 +78,42 @@ model SystemConfig {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
-  @@map("system_config")
+  @@map("system_configs")
 }
 
-model AuditLog {
+model EmailVerificationToken {
   id        String   @id @default(uuid())
-  userId    String?
-  action    String
-  resource  String
-  details   Json?
-  ipAddress String?
-  userAgent String?
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
   createdAt DateTime @default(now())
+  user      User     @relation("UserEmailVerificationTokens", fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("audit_logs")
+  @@map("email_verification_tokens")
 }
 
-enum Role {
-  USER
-  ADMIN
-  MODERATOR
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation("UserPasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
 }
 
-enum ConfigType {
-  STRING
-  NUMBER
-  BOOLEAN
-  JSON
+model Order {
+  id          String   @id @default(uuid())
+  userId      String
+  amount      Decimal  @db.Decimal(18, 8)
+  status      String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("orders")
 }

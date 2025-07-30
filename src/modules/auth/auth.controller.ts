@@ -1,180 +1,181 @@
-import { Request, Response } from 'express';
+import { Request, Response, Router } from 'express';
 import authService from './auth.service';
 import { asyncHandler } from '../../middlewares/errorHandler';
 import { logger } from '../../utils/logger';
 import { getClientIP } from '../../utils/helpers';
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  resendVerificationSchema,
+  refreshTokenSchema,
+  logoutSchema,
+} from './auth.validation';
 
-class AuthController {
-  /**
-   * Registro de usuário
-   */
-  register = asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, password, referralCode } = req.body;
+const router = Router();
 
-    const result = await authService.register({
-      name,
-      email,
-      password,
-      referralCode,
-    });
-
-    logger.info(`📝 Registro realizado: ${email} - IP: ${getClientIP(req)}`);
-
-    res.status(201).json({
-      success: true,
-      message: 'Usuário criado com sucesso. Verifique seu email para ativar a conta.',
-      data: {
-        user: result.user,
-        emailSent: result.emailSent,
-      },
-    });
-  });
-
-  /**
-   * Login de usuário
-   */
-  login = asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = req.body;
-
-    const result = await authService.login({ email, password });
-
-    logger.info(`🔐 Login realizado: ${email} - IP: ${getClientIP(req)}`);
-
-    res.json({
-      success: true,
-      message: 'Login realizado com sucesso',
-      data: result,
-    });
-  });
-
-  /**
-   * Verificação de email
-   */
-  verifyEmail = asyncHandler(async (req: Request, res: Response) => {
-    const { token } = req.query;
-
-    if (!token || typeof token !== 'string') {
-      return res.status(400).json({
-        success: false,
-        message: 'Token de verificação é obrigatório',
-        code: 'MISSING_TOKEN',
-      });
+router.post(
+  '/register',
+  asyncHandler(async (req: Request, res: Response) => {
+    // validação
+    const { error: vErr } = registerSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
     }
 
-    const result = await authService.verifyEmail(token);
+    const { name, email, password, referralCode } = req.body;
+    logger.info(`📝 Iniciando registro: ${email} - IP: ${getClientIP(req)}`);
 
-    logger.info(`✅ Email verificado: ${result.user.email} - IP: ${getClientIP(req)}`);
+    const { user, emailSent } = await authService.register({ name, email, password, referralCode });
 
+    logger.info(`✅ Registro concluído: ${email} - IP: ${getClientIP(req)}`);
+    return res.status(201).json({
+      success: true,
+      message: 'Usuário criado com sucesso. Verifique seu email para ativar a conta.',
+      data: { user, emailSent },
+    });
+  }),
+);
+
+router.post(
+  '/login',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = loginSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
+
+    const { email, password } = req.body;
+    logger.info(`🔐 Tentativa de login: ${email} - IP: ${getClientIP(req)}`);
+
+    const { user, tokens } = await authService.login({ email, password });
+
+    logger.info(`🔓 Login realizado: ${email} - IP: ${getClientIP(req)}`);
+    return res.json({ success: true, message: 'Login realizado com sucesso', data: { user, tokens } });
+  }),
+);
+
+router.get(
+  '/verify-email',
+  asyncHandler(async (req: Request, res: Response) => {
+    const token = String(req.query.token || '');
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token de verificação é obrigatório' });
+    }
+
+    logger.info(`📧 Verificando email com token: ${token} - IP: ${getClientIP(req)}`);
+    const { user } = await authService.verifyEmail(token);
+    logger.info(`✅ Email verificado: ${user.email} - IP: ${getClientIP(req)}`);
+    return res.json({ success: true, message: 'Email verificado com sucesso!', data: { user } });
+  }),
+);
+
+router.post(
+  '/resend-verification',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = resendVerificationSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
+
+    const { email } = req.body;
+    logger.info(`📧 Reenvio de verificação: ${email} - IP: ${getClientIP(req)}`);
+    const { emailSent } = await authService.resendVerification(email);
     return res.json({
       success: true,
-      message: 'Email verificado com sucesso!',
-      data: result,
+      message: 'Email de verificação reenviado. Verifique sua caixa de entrada.',
+      data: { emailSent },
     });
-  });
+  }),
+);
 
-  /**
-   * Reenvio de verificação de email
-   */
-  resendVerification = asyncHandler(async (req: Request, res: Response) => {
+router.post(
+  '/forgot-password',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = forgotPasswordSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
+
     const { email } = req.body;
-
-    const result = await authService.resendVerification(email);
-
-    logger.info(`📧 Reenvio de verificação: ${email} - IP: ${getClientIP(req)}`);
-
-    res.json({
-      success: true,
-      message: 'Email de verificação enviado. Verifique sua caixa de entrada.',
-      data: result,
-    });
-  });
-
-  /**
-   * Esqueci minha senha
-   */
-  forgotPassword = asyncHandler(async (req: Request, res: Response) => {
-    const { email } = req.body;
-
-    const result = await authService.forgotPassword(email);
-
-    logger.info(`🔑 Solicitação de recuperação: ${email} - IP: ${getClientIP(req)}`);
-
-    res.json({
+    logger.info(`🔑 Recuperação de senha solicitada: ${email} - IP: ${getClientIP(req)}`);
+    const { emailSent } = await authService.forgotPassword(email);
+    return res.json({
       success: true,
       message: 'Se o email existir, você receberá instruções para redefinir sua senha.',
-      data: result,
+      data: { emailSent },
     });
-  });
+  }),
+);
 
-  /**
-   * Redefinir senha
-   */
-  resetPassword = asyncHandler(async (req: Request, res: Response) => {
+router.post(
+  '/reset-password',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = resetPasswordSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
+
     const { token, password } = req.body;
+    logger.info(`🔑 Reset de senha token: ${token} - IP: ${getClientIP(req)}`);
+    await authService.resetPassword(token, password);
+    logger.info(`✅ Senha redefinida - IP: ${getClientIP(req)}`);
+    return res.json({ success: true, message: 'Senha redefinida com sucesso. Faça login novamente.' });
+  }),
+);
 
-    const result = await authService.resetPassword(token, password);
+router.post(
+  '/refresh-token',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = refreshTokenSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
 
-    logger.info(`🔑 Senha redefinida - IP: ${getClientIP(req)}`);
-
-    res.json({
-      success: true,
-      message: 'Senha redefinida com sucesso. Faça login com sua nova senha.',
-      data: result,
-    });
-  });
-
-  /**
-   * Refresh token
-   */
-  refreshToken = asyncHandler(async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
+    logger.info(`🔄 Renovando token - IP: ${getClientIP(req)}`);
+    const { accessToken } = await authService.refreshToken(refreshToken);
+    return res.json({ success: true, message: 'Token renovado com sucesso', data: { accessToken } });
+  }),
+);
 
-    const result = await authService.refreshToken(refreshToken);
+router.post(
+  '/logout',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = logoutSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const msg = vErr.details.map(d => d.message).join(' ');
+      return res.status(400).json({ success: false, message: msg });
+    }
 
-    res.json({
-      success: true,
-      message: 'Token renovado com sucesso',
-      data: result,
-    });
-  });
-
-  /**
-   * Logout
-   */
-  logout = asyncHandler(async (req: Request, res: Response) => {
     const { refreshToken } = req.body;
+    logger.info(`👋 Logout solicitado - IP: ${getClientIP(req)}`);
+    await authService.logout(refreshToken);
+    return res.json({ success: true, message: 'Logout realizado com sucesso' });
+  }),
+);
 
-    const result = await authService.logout(refreshToken);
+router.get(
+  '/validate-token',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    return res.json({ success: true, message: 'Token válido', data: { user } });
+  }),
+);
 
-    logger.info(`👋 Logout realizado - IP: ${getClientIP(req)}`);
+router.get(
+  '/profile',
+  asyncHandler(async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    return res.json({ success: true, message: 'Perfil obtido com sucesso', data: { user } });
+  }),
+);
 
-    res.json({
-      success: true,
-      message: 'Logout realizado com sucesso',
-      data: result,
-    });
-  });
-
-  /**
-   * Perfil do usuário
-   */
-  getProfile = asyncHandler(async (req: Request, res: Response) => {
-    const user = req.user!;
-
-    res.json({
-      success: true,
-      message: 'Perfil obtido com sucesso',
-      data: {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          isVerified: user.isVerified,
-        },
-      },
-    });
-  });
-}
-
-export default new AuthController();
+export default router;

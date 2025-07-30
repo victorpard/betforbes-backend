@@ -10,9 +10,6 @@ export interface UpdateProfileData {
 }
 
 class UserService {
-  /**
-   * Obter perfil do usuário
-   */
   async getProfile(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -44,27 +41,20 @@ class UserService {
     };
   }
 
-  /**
-   * Atualizar perfil do usuário
-   */
   async updateProfile(userId: string, updateData: UpdateProfileData) {
     const { name, phone, birthDate } = updateData;
 
-    // Preparar dados para atualização
     const dataToUpdate: any = {};
-    
     if (name !== undefined) dataToUpdate.name = name;
     if (phone !== undefined) dataToUpdate.phone = phone;
     if (birthDate !== undefined) {
       dataToUpdate.birthDate = birthDate ? new Date(birthDate) : null;
     }
 
-    // Verificar se há dados para atualizar
     if (Object.keys(dataToUpdate).length === 0) {
       throw createError('Nenhum dado fornecido para atualização', 400, 'NO_DATA_TO_UPDATE');
     }
 
-    // Atualizar usuário
     const user = await prisma.user.update({
       where: { id: userId },
       data: dataToUpdate,
@@ -94,42 +84,31 @@ class UserService {
     };
   }
 
-  /**
-   * Alterar senha do usuário
-   */
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
-    // Buscar usuário
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, password: true },
     });
 
-    if (!user) {
-      throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
-    }
+    if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
-    // Verificar senha atual
     const isCurrentPasswordValid = await verifyPassword(currentPassword, user.password);
     if (!isCurrentPasswordValid) {
       throw createError('Senha atual incorreta', 400, 'INVALID_CURRENT_PASSWORD');
     }
 
-    // Verificar se a nova senha é diferente da atual
     const isSamePassword = await verifyPassword(newPassword, user.password);
     if (isSamePassword) {
       throw createError('A nova senha deve ser diferente da senha atual', 400, 'SAME_PASSWORD');
     }
 
-    // Hash da nova senha
     const hashedNewPassword = await hashPassword(newPassword);
 
-    // Atualizar senha
     await prisma.user.update({
       where: { id: userId },
       data: { password: hashedNewPassword },
     });
 
-    // Invalidar todas as sessões do usuário (forçar novo login)
     await prisma.userSession.updateMany({
       where: { userId },
       data: { isActive: false },
@@ -140,11 +119,8 @@ class UserService {
     return { success: true };
   }
 
-  /**
-   * Listar sessões ativas do usuário
-   */
   async getSessions(userId: string) {
-    const sessions = await prisma.userSession.findMany({
+    return await prisma.userSession.findMany({
       where: {
         userId,
         isActive: true,
@@ -159,13 +135,8 @@ class UserService {
       },
       orderBy: { createdAt: 'desc' },
     });
-
-    return sessions;
   }
 
-  /**
-   * Revogar sessão específica
-   */
   async revokeSession(userId: string, sessionId: string) {
     const session = await prisma.userSession.findFirst({
       where: {
@@ -189,16 +160,12 @@ class UserService {
     return { success: true };
   }
 
-  /**
-   * Revogar todas as sessões (exceto a atual)
-   */
   async revokeAllSessions(userId: string, currentToken?: string) {
-    let whereClause: any = {
+    const whereClause: any = {
       userId,
       isActive: true,
     };
 
-    // Se há um token atual, excluir essa sessão da revogação
     if (currentToken) {
       whereClause.token = { not: currentToken };
     }
@@ -213,39 +180,26 @@ class UserService {
     return result.count;
   }
 
-  /**
-   * Excluir conta do usuário
-   */
   async deleteAccount(userId: string, password: string) {
-    // Buscar usuário
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, password: true },
     });
 
-    if (!user) {
-      throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
-    }
+    if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
-    // Verificar senha
     const isPasswordValid = await verifyPassword(password, user.password);
     if (!isPasswordValid) {
       throw createError('Senha incorreta', 400, 'INVALID_PASSWORD');
     }
 
-    // Excluir usuário (cascade irá remover relacionamentos)
-    await prisma.user.delete({
-      where: { id: userId },
-    });
+    await prisma.user.delete({ where: { id: userId } });
 
     logger.info(`🗑️  Conta excluída: ${user.email}`);
 
     return { success: true };
   }
 
-  /**
-   * Obter estatísticas do usuário
-   */
   async getUserStats(userId: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -257,11 +211,8 @@ class UserService {
       },
     });
 
-    if (!user) {
-      throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
-    }
+    if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
-    // Contar sessões ativas
     const activeSessions = await prisma.userSession.count({
       where: {
         userId,
@@ -270,7 +221,6 @@ class UserService {
       },
     });
 
-    // Calcular dias desde o registro
     const daysSinceRegistration = Math.floor(
       (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)
     );
@@ -281,7 +231,6 @@ class UserService {
       daysSinceRegistration,
       lastLoginAt: user.lastLoginAt,
       activeSessions,
-      // Campos preparados para expansão futura
       totalBets: 0,
       totalWins: 0,
       totalDeposits: 0,
@@ -289,13 +238,9 @@ class UserService {
     };
   }
 
-  /**
-   * Verificar se usuário pode ser excluído
-   */
   async canDeleteAccount(userId: string): Promise<{ canDelete: boolean; reasons: string[] }> {
     const reasons: string[] = [];
 
-    // Verificar saldo
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { balance: true },
@@ -305,17 +250,57 @@ class UserService {
       reasons.push('Usuário possui saldo em conta');
     }
 
-    // Futuras verificações podem ser adicionadas aqui:
-    // - Apostas pendentes
-    // - Transações em processamento
-    // - Disputas abertas
-
     return {
       canDelete: reasons.length === 0,
       reasons,
     };
   }
+
+  /**
+   * Obter perfil do usuário com dados do afiliado (quem indicou)
+   */
+  async getProfileWithAffiliate(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isVerified: true,
+        isActive: true,
+        avatar: true,
+        phone: true,
+        birthDate: true,
+        balance: true,
+        referralCode: true,
+        createdAt: true,
+        updatedAt: true,
+        lastLoginAt: true,
+        referrer: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
+    }
+
+    return {
+      ...user,
+      balance: parseFloat(user.balance.toString()),
+      referredBy: user.referrer
+        ? {
+            name: user.referrer.name,
+            email: user.referrer.email,
+          }
+        : null,
+    };
+  }
 }
 
 export default new UserService();
-
