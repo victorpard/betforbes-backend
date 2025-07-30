@@ -8,3 +8,4 @@ logs/
 *.zip
 .github/fluxos de trabalho/
 /frontend/dist/
+.env
