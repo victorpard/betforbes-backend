@@ -1,4 +1,5 @@
 import prisma from '../../lib/prisma';
+import { Prisma } from '@prisma/client';
 import jwtService from '../../lib/jwt';
 import emailService from '../../utils/email';
 import { hashPassword, verifyPassword, generateSecureToken, getExpirationDate } from '../../utils/helpers';
@@ -49,16 +50,16 @@ class AuthService {
     }
 
     // Verificar código de referência se fornecido
-    let referredBy = null;
+    let referredBy: string | null = null;
     if (referralCode) {
       const referrer = await prisma.user.findUnique({
         where: { referralCode },
       });
-      
+
       if (!referrer) {
         throw createError('Código de referência inválido', 400, 'INVALID_REFERRAL_CODE');
       }
-      
+
       referredBy = referrer.id;
     }
 
@@ -67,19 +68,32 @@ class AuthService {
 
     // Gerar código de referência único
     let userReferralCode: string;
+    let attempts = 0;
     do {
       userReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      attempts += 1;
+      if (attempts > 10) {
+        throw createError('Erro ao gerar código de afiliado', 500, 'REFERRAL_CODE_GENERATION_FAILED');
+      }
     } while (await prisma.user.findUnique({ where: { referralCode: userReferralCode } }));
+
+    // Monta dados condicionalmente para evitar conflito de tipos
+    const createData: Prisma.UserCreateInput = {
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      referralCode: userReferralCode,
+    } as any;
+
+    if (referredBy) {
+      // legacy string e relação nova
+      (createData as any).referredBy = referredBy;
+      (createData as any).referredById = referredBy;
+    }
 
     // Criar usuário
     const user = await prisma.user.create({
-      data: {
-        name,
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        referralCode: userReferralCode,
-        referredBy,
-      },
+      data: createData,
       select: {
         id: true,
         name: true,
@@ -412,4 +426,3 @@ class AuthService {
 }
 
 export default new AuthService();
-
