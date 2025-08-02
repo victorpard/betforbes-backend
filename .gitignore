@@ -1,11 +1,10 @@
-node_modules/
-logs/
-.env
-*.log
-.cache/
-.ssh/
-*.dump
-*.zip
-.github/fluxos de trabalho/
-/frontend/dist/
-.env
+# Build output
+/dist
+# Node modules
+/node_modules
+# Logs
+/logs
+# Env local overrides (não versionar secrets)
+.env*
+# Prisma client generator (às vezes você não quer commitar isso)
+/node_modules/@prisma/client
