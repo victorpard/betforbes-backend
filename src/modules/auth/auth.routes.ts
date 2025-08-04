@@ -1,7 +1,8 @@
+import service from './auth.service';
 import { Router } from 'express';
 import AuthService, { RegisterData, LoginData } from './auth.service';
 const router = Router();
-const service = new AuthService();
+
 
 // Registrar
 router.post('/register', async (req, res, next) => {
