@@ -1,0 +1,14 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = true
+[remote "origin"]
+	url = https://github.com/victorpard/betforbes-backend.git
+	fetch = +refs/*:refs/*
+	mirror = true
+[remote "clean-backup"]
+	url = https://github.com/victorpard/betforbes-repo-backend.git
+	fetch = +refs/heads/*:refs/remotes/clean-backup/*
+[remote "backup"]
+	url = https://github.com/victorpard/betforbes-repo-backend.git
+	fetch = +refs/heads/*:refs/remotes/backup/*
