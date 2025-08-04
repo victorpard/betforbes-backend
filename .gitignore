@@ -1,10 +1,24 @@
+# dependências
 node_modules/
-logs/
+
+# build / transpiled output
+dist/
+
+# ambiente / segredos
 .env
+.env.*.local
+.env.bak
+.env.production
+
+# logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# snapshots, tarballs, backups pesados
+*.tar.gz
+backups/
+
+# caches
 .cache/
-.ssh/
-*.dump
-*.zip
-.github/fluxos de trabalho/
-/frontend/dist/
