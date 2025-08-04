@@ -7,9 +7,12 @@ exports.rateLimiter = exports.emailVerificationLimiter = exports.passwordResetLi
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const logger_1 = require("../utils/logger");
 const helpers_1 = require("../utils/helpers");
+/**
+ * Rate limiting geral
+ */
 exports.generalLimiter = (0, express_rate_limit_1.default)({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'),
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
+    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutos
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // 100 requests por IP
     message: {
         success: false,
         message: 'Muitas tentativas. Tente novamente em alguns minutos.',
@@ -28,9 +31,12 @@ exports.generalLimiter = (0, express_rate_limit_1.default)({
         });
     },
 });
+/**
+ * Rate limiting para autenticação (mais restritivo)
+ */
 exports.authLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000,
-    max: 5,
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 5, // 5 tentativas de login por IP
     message: {
         success: false,
         message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
@@ -38,7 +44,7 @@ exports.authLimiter = (0, express_rate_limit_1.default)({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    skipSuccessfulRequests: true,
+    skipSuccessfulRequests: true, // Não conta requests bem-sucedidos
     keyGenerator: (req) => (0, helpers_1.getClientIP)(req),
     handler: (req, res) => {
         const ip = (0, helpers_1.getClientIP)(req);
@@ -50,9 +56,12 @@ exports.authLimiter = (0, express_rate_limit_1.default)({
         });
     },
 });
+/**
+ * Rate limiting para recuperação de senha
+ */
 exports.passwordResetLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 60 * 60 * 1000,
-    max: 3,
+    windowMs: 60 * 60 * 1000, // 1 hora
+    max: 3, // 3 tentativas por IP
     message: {
         success: false,
         message: 'Muitas solicitações de recuperação de senha. Tente novamente em 1 hora.',
@@ -71,9 +80,12 @@ exports.passwordResetLimiter = (0, express_rate_limit_1.default)({
         });
     },
 });
+/**
+ * Rate limiting para verificação de email
+ */
 exports.emailVerificationLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 10 * 60 * 1000,
-    max: 3,
+    windowMs: 10 * 60 * 1000, // 10 minutos
+    max: 3, // 3 tentativas por IP
     message: {
         success: false,
         message: 'Muitas solicitações de verificação de email. Tente novamente em 10 minutos.',
@@ -92,5 +104,5 @@ exports.emailVerificationLimiter = (0, express_rate_limit_1.default)({
         });
     },
 });
+// Export padrão para compatibilidade
 exports.rateLimiter = exports.generalLimiter;
-//# sourceMappingURL=rateLimiter.js.map

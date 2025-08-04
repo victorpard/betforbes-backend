@@ -3,7 +3,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.createError = exports.asyncHandler = exports.notFoundHandler = exports.errorHandler = void 0;
 const logger_1 = require("../utils/logger");
 const helpers_1 = require("../utils/helpers");
+/**
+ * Middleware de tratamento de erros
+ */
 const errorHandler = (error, req, res, next) => {
+    // Log do erro
     logger_1.logger.error('❌ Erro na aplicação:', {
         error: error.message,
         stack: error.stack,
@@ -13,9 +17,11 @@ const errorHandler = (error, req, res, next) => {
         userAgent: req.headers['user-agent'],
         user: req.user?.email || 'Não autenticado',
     });
+    // Status code padrão
     let statusCode = error.statusCode || 500;
     let message = error.message || 'Erro interno do servidor';
     let code = error.code || 'INTERNAL_ERROR';
+    // Tratamento de erros específicos
     if (error.name === 'ValidationError') {
         statusCode = 400;
         message = 'Dados inválidos';
@@ -36,6 +42,7 @@ const errorHandler = (error, req, res, next) => {
         message = 'Token expirado';
         code = 'TOKEN_EXPIRED';
     }
+    // Erros do Prisma
     if (error.name === 'PrismaClientKnownRequestError') {
         const prismaError = error;
         if (prismaError.code === 'P2002') {
@@ -49,12 +56,14 @@ const errorHandler = (error, req, res, next) => {
             code = 'NOT_FOUND';
         }
     }
+    // Em produção, não expor detalhes do erro
     const response = {
         success: false,
         message,
         code,
         timestamp: new Date().toISOString(),
     };
+    // Em desenvolvimento, incluir mais detalhes
     if (process.env.NODE_ENV === 'development') {
         response.stack = error.stack;
         response.details = error.details;
@@ -62,6 +71,9 @@ const errorHandler = (error, req, res, next) => {
     res.status(statusCode).json(response);
 };
 exports.errorHandler = errorHandler;
+/**
+ * Middleware para capturar rotas não encontradas
+ */
 const notFoundHandler = (req, res, next) => {
     const error = new Error(`Rota não encontrada: ${req.originalUrl}`);
     error.statusCode = 404;
@@ -69,12 +81,18 @@ const notFoundHandler = (req, res, next) => {
     next(error);
 };
 exports.notFoundHandler = notFoundHandler;
+/**
+ * Wrapper para funções async que podem gerar erros
+ */
 const asyncHandler = (fn) => {
     return (req, res, next) => {
         Promise.resolve(fn(req, res, next)).catch(next);
     };
 };
 exports.asyncHandler = asyncHandler;
+/**
+ * Cria um erro customizado
+ */
 const createError = (message, statusCode = 500, code, details) => {
     const error = new Error(message);
     error.statusCode = statusCode;
@@ -84,4 +102,3 @@ const createError = (message, statusCode = 500, code, details) => {
     return error;
 };
 exports.createError = createError;
-//# sourceMappingURL=errorHandler.js.map

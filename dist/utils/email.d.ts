@@ -1,7 +1,7 @@
-export interface EmailOptions {
+interface SendEmailOptions {
     to: string;
     subject: string;
-    html: string;
+    html?: string;
     text?: string;
 }
 declare class EmailService {
@@ -9,10 +9,9 @@ declare class EmailService {
     private isConfigured;
     constructor();
     private setupTransporter;
-    sendEmail(options: EmailOptions): Promise<boolean>;
+    sendEmail(options: SendEmailOptions): Promise<boolean>;
     sendVerificationEmail(email: string, name: string, token: string): Promise<boolean>;
     sendPasswordResetEmail(email: string, name: string, token: string): Promise<boolean>;
-    isReady(): boolean;
 }
 declare const _default: EmailService;
 export default _default;

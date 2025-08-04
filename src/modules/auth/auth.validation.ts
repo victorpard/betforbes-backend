@@ -1,4 +1,13 @@
+
 import Joi from 'joi';
+
+// Pattern que obriga:
+// - pelo menos 1 letra minúscula
+// - pelo menos 1 letra maiúscula
+// - pelo menos 1 número
+// - pelo menos 1 caractere especial
+// - no mínimo 8 caracteres
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*\W).{8,}$/;
 
 // Schema para registro de usuário
 export const registerSchema = Joi.object({
@@ -26,24 +35,29 @@ export const registerSchema = Joi.object({
     }),
 
   password: Joi.string()
-    .min(8)
-    .max(128)
-    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .pattern(passwordPattern)
     .required()
     .messages({
       'string.empty': 'Senha é obrigatória',
-      'string.min': 'Senha deve ter pelo menos 8 caracteres',
-      'string.max': 'Senha deve ter no máximo 128 caracteres',
-      'string.pattern.base': 'Senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+      'string.pattern.base':
+        'Senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
       'any.required': 'Senha é obrigatória',
     }),
 
+  confirmPassword: Joi.string()
+    .required()
+    .valid(Joi.ref('password'))
+    .messages({
+      'any.only': 'As senhas não coincidem',
+      'string.empty': 'Confirmação de senha é obrigatória',
+    }),
+
   referralCode: Joi.string()
-    .length(6)
+    .length(8)
     .uppercase()
     .optional()
     .messages({
-      'string.length': 'Código de referência deve ter exatamente 6 caracteres',
+      'string.length': 'Código de referência deve ter exatamente 8 caracteres',
     }),
 });
 
@@ -93,15 +107,12 @@ export const resetPasswordSchema = Joi.object({
     }),
 
   password: Joi.string()
-    .min(8)
-    .max(128)
-    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .pattern(passwordPattern)
     .required()
     .messages({
       'string.empty': 'Nova senha é obrigatória',
-      'string.min': 'Nova senha deve ter pelo menos 8 caracteres',
-      'string.max': 'Nova senha deve ter no máximo 128 caracteres',
-      'string.pattern.base': 'Nova senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+      'string.pattern.base':
+        'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
       'any.required': 'Nova senha é obrigatória',
     }),
 });
@@ -167,7 +178,7 @@ export const updateProfileSchema = Joi.object({
     }),
 });
 
-// Schema para alterar senha
+// Schema para alterar senha dentro do perfil
 export const changePasswordSchema = Joi.object({
   currentPassword: Joi.string()
     .required()
@@ -177,70 +188,45 @@ export const changePasswordSchema = Joi.object({
     }),
 
   newPassword: Joi.string()
-    .min(8)
-    .max(128)
-    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .pattern(passwordPattern)
     .required()
     .messages({
       'string.empty': 'Nova senha é obrigatória',
-      'string.min': 'Nova senha deve ter pelo menos 8 caracteres',
-      'string.max': 'Nova senha deve ter no máximo 128 caracteres',
-      'string.pattern.base': 'Nova senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+      'string.pattern.base':
+        'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
       'any.required': 'Nova senha é obrigatória',
     }),
 });
 
-// Validações customizadas
+// Validações auxiliares (opcionais)
 export const customValidations = {
-  // Validar se email já existe
   emailExists: async (email: string): Promise<boolean> => {
-    // Esta função será implementada no service
     return false;
   },
 
-  // Validar força da senha
   passwordStrength: (password: string): { score: number; feedback: string[] } => {
     const feedback: string[] = [];
     let score = 0;
-
-    // Comprimento
-    if (password.length >= 8) score += 1;
+    if (password.length >= 8) score++;
     else feedback.push('Use pelo menos 8 caracteres');
-
-    if (password.length >= 12) score += 1;
+    if (password.length >= 12) score++;
     else feedback.push('Use pelo menos 12 caracteres para maior segurança');
-
-    // Caracteres
-    if (/[a-z]/.test(password)) score += 1;
+    if (/[a-z]/.test(password)) score++;
     else feedback.push('Inclua letras minúsculas');
-
-    if (/[A-Z]/.test(password)) score += 1;
+    if (/[A-Z]/.test(password)) score++;
     else feedback.push('Inclua letras maiúsculas');
-
-    if (/\d/.test(password)) score += 1;
+    if (/\d/.test(password)) score++;
     else feedback.push('Inclua números');
-
-    if (/[^a-zA-Z\d]/.test(password)) score += 1;
+    if (/[^a-zA-Z\d]/.test(password)) score++;
     else feedback.push('Inclua símbolos especiais');
-
-    // Padrões comuns
-    if (!/(.)\1{2,}/.test(password)) score += 1;
+    if (!/(.)\1{2,}/.test(password)) score++;
     else feedback.push('Evite repetir caracteres');
-
-    if (!/123|abc|qwe|password|admin/i.test(password)) score += 1;
+    if (!/123|abc|qwe|password|admin/i.test(password)) score++;
     else feedback.push('Evite sequências ou palavras comuns');
-
     return { score, feedback };
   },
 
-  // Validar token format
-  isValidToken: (token: string): boolean => {
-    return /^[a-f0-9]{64}$/.test(token);
-  },
-
-  // Validar UUID
-  isValidUUID: (uuid: string): boolean => {
-    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
-  },
+  isValidToken: (token: string): boolean => /^[a-f0-9]{64}$/.test(token),
+  isValidUUID: (uuid: string): boolean =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid),
 };
-

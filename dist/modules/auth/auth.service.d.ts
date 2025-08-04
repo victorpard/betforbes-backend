@@ -16,6 +16,7 @@ export interface AuthResult {
         role: string;
         isVerified: boolean;
         balance: number;
+        referralCode: string | null;
     };
     tokens: {
         accessToken: string;

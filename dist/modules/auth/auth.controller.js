@@ -3,121 +3,139 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.register = register;
+exports.login = login;
+exports.verifyEmail = verifyEmail;
+exports.resendVerification = resendVerification;
 const auth_service_1 = __importDefault(require("./auth.service"));
-const errorHandler_1 = require("../../middlewares/errorHandler");
 const logger_1 = require("../../utils/logger");
-const helpers_1 = require("../../utils/helpers");
-class AuthController {
-    register = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { name, email, password, referralCode } = req.body;
+async function register(req, res) {
+    const { name, email, password, confirmPassword, referralCode } = req.body;
+    logger_1.logger.info('[CONTROLLER][REGISTER] payload:', {
+        name,
+        email,
+        referralCode,
+    });
+    if (!name || !email || !password || !confirmPassword) {
+        return res.status(400).json({
+            success: false,
+            message: 'Campos obrigatórios ausentes',
+            code: 'MISSING_FIELDS',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    if (password !== confirmPassword) {
+        return res.status(400).json({
+            success: false,
+            message: 'Passwords não conferem',
+            code: 'PASSWORD_MISMATCH',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    try {
         const result = await auth_service_1.default.register({
             name,
             email,
             password,
             referralCode,
         });
-        logger_1.logger.info(`📝 Registro realizado: ${email} - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.status(201).json({
-            success: true,
-            message: 'Usuário criado com sucesso. Verifique seu email para ativar a conta.',
-            data: {
-                user: result.user,
-                emailSent: result.emailSent,
-            },
-        });
-    });
-    login = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { email, password } = req.body;
-        const result = await auth_service_1.default.login({ email, password });
-        logger_1.logger.info(`🔐 Login realizado: ${email} - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.json({
-            success: true,
-            message: 'Login realizado com sucesso',
-            data: result,
-        });
-    });
-    verifyEmail = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { token } = req.query;
-        if (!token || typeof token !== 'string') {
-            return res.status(400).json({
-                success: false,
-                message: 'Token de verificação é obrigatório',
-                code: 'MISSING_TOKEN',
-            });
-        }
-        const result = await auth_service_1.default.verifyEmail(token);
-        logger_1.logger.info(`✅ Email verificado: ${result.user.email} - IP: ${(0, helpers_1.getClientIP)(req)}`);
         return res.json({
             success: true,
-            message: 'Email verificado com sucesso!',
-            data: result,
+            user: result.user,
+            emailSent: result.emailSent,
         });
-    });
-    resendVerification = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { email } = req.body;
-        const result = await auth_service_1.default.resendVerification(email);
-        logger_1.logger.info(`📧 Reenvio de verificação: ${email} - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.json({
-            success: true,
-            message: 'Email de verificação enviado. Verifique sua caixa de entrada.',
-            data: result,
+    }
+    catch (err) {
+        logger_1.logger.error('[CONTROLLER][REGISTER] erro:', err);
+        return res.status(err.status || 400).json({
+            success: false,
+            message: err.message || 'Erro no registro',
+            code: err.code || 'REGISTER_FAILED',
+            timestamp: new Date().toISOString(),
         });
-    });
-    forgotPassword = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { email } = req.body;
-        const result = await auth_service_1.default.forgotPassword(email);
-        logger_1.logger.info(`🔑 Solicitação de recuperação: ${email} - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.json({
-            success: true,
-            message: 'Se o email existir, você receberá instruções para redefinir sua senha.',
-            data: result,
-        });
-    });
-    resetPassword = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { token, password } = req.body;
-        const result = await auth_service_1.default.resetPassword(token, password);
-        logger_1.logger.info(`🔑 Senha redefinida - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.json({
-            success: true,
-            message: 'Senha redefinida com sucesso. Faça login com sua nova senha.',
-            data: result,
-        });
-    });
-    refreshToken = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { refreshToken } = req.body;
-        const result = await auth_service_1.default.refreshToken(refreshToken);
-        res.json({
-            success: true,
-            message: 'Token renovado com sucesso',
-            data: result,
-        });
-    });
-    logout = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const { refreshToken } = req.body;
-        const result = await auth_service_1.default.logout(refreshToken);
-        logger_1.logger.info(`👋 Logout realizado - IP: ${(0, helpers_1.getClientIP)(req)}`);
-        res.json({
-            success: true,
-            message: 'Logout realizado com sucesso',
-            data: result,
-        });
-    });
-    getProfile = (0, errorHandler_1.asyncHandler)(async (req, res) => {
-        const user = req.user;
-        res.json({
-            success: true,
-            message: 'Perfil obtido com sucesso',
-            data: {
-                user: {
-                    id: user.id,
-                    name: user.name,
-                    email: user.email,
-                    role: user.role,
-                    isVerified: user.isVerified,
-                },
-            },
-        });
-    });
+    }
 }
-exports.default = new AuthController();
-//# sourceMappingURL=auth.controller.js.map
+async function login(req, res) {
+    const { email, password } = req.body;
+    logger_1.logger.info('[CONTROLLER][LOGIN] tentativa para:', { email });
+    if (!email || !password) {
+        return res.status(400).json({
+            success: false,
+            message: 'Email e senha são obrigatórios',
+            code: 'MISSING_CREDENTIALS',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    try {
+        const authResult = await auth_service_1.default.login({ email, password });
+        return res.json({
+            success: true,
+            ...authResult,
+        });
+    }
+    catch (err) {
+        logger_1.logger.error('[CONTROLLER][LOGIN] erro:', err);
+        return res.status(err.status || 401).json({
+            success: false,
+            message: err.message || 'Falha no login',
+            code: err.code || 'LOGIN_FAILED',
+            timestamp: new Date().toISOString(),
+        });
+    }
+}
+async function verifyEmail(req, res) {
+    const token = typeof req.query.token === 'string' ? req.query.token : '';
+    logger_1.logger.info('[CONTROLLER][VERIFY_EMAIL] token recebido:', token);
+    if (!token) {
+        return res.status(400).json({
+            success: false,
+            message: 'Token de verificação ausente',
+            code: 'MISSING_TOKEN',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    try {
+        const { user } = await auth_service_1.default.verifyEmail(token);
+        return res.json({
+            success: true,
+            user,
+        });
+    }
+    catch (err) {
+        logger_1.logger.error('[CONTROLLER][VERIFY_EMAIL] erro:', err);
+        return res.status(err.status || 400).json({
+            success: false,
+            message: err.message || 'Falha ao verificar email',
+            code: err.code || 'VERIFY_EMAIL_FAILED',
+            timestamp: new Date().toISOString(),
+        });
+    }
+}
+async function resendVerification(req, res) {
+    const { email } = req.body;
+    logger_1.logger.info('[CONTROLLER][RESEND_VERIFICATION] para:', { email });
+    if (!email) {
+        return res.status(400).json({
+            success: false,
+            message: 'Email é obrigatório',
+            code: 'MISSING_EMAIL',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    try {
+        const { emailSent } = await auth_service_1.default.resendVerification(email);
+        return res.json({
+            success: true,
+            emailSent,
+        });
+    }
+    catch (err) {
+        logger_1.logger.error('[CONTROLLER][RESEND_VERIFICATION] erro:', err);
+        return res.status(err.status || 400).json({
+            success: false,
+            message: err.message || 'Falha ao reenviar verificação',
+            code: err.code || 'RESEND_VERIFICATION_FAILED',
+            timestamp: new Date().toISOString(),
+        });
+    }
+}

@@ -10,14 +10,33 @@ const helpers_1 = require("../../utils/helpers");
 const errorHandler_1 = require("../../middlewares/errorHandler");
 const logger_1 = require("../../utils/logger");
 class AuthService {
+    /**
+     * Registra um novo usuário
+     */
     async register(data) {
         const { name, email, password, referralCode } = data;
-        const existingUser = await prisma_1.default.user.findUnique({
-            where: { email: email.toLowerCase() },
-        });
-        if (existingUser) {
-            throw (0, errorHandler_1.createError)('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
+        const normalizedEmail = email.trim().toLowerCase();
+        logger_1.logger.info('[SERVICE][REGISTER] tentar registrar email:', { original: email, normalizedEmail });
+        // Verificar se email já existe (com contorno via DEBUG)
+        let existingUser = null;
+        try {
+            existingUser = await prisma_1.default.user.findUnique({
+                where: { email: normalizedEmail },
+            });
+            logger_1.logger.info('[SERVICE][REGISTER] resultado da busca de existência:', { existingUser });
         }
+        catch (e) {
+            logger_1.logger.warn('[SERVICE][REGISTER] falha ao buscar existingUser (continuando):', { error: e });
+        }
+        if (existingUser) {
+            if (process.env.SKIP_EMAIL_UNIQUENESS_FOR_DEBUG === '1') {
+                logger_1.logger.warn('[SERVICE][REGISTER] conflito de email detectado mas ignorado por DEBUG:', normalizedEmail);
+            }
+            else {
+                throw (0, errorHandler_1.createError)('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
+            }
+        }
+        // Verificar código de referência se fornecido
         let referredBy = null;
         if (referralCode) {
             const referrer = await prisma_1.default.user.findUnique({
@@ -28,19 +47,34 @@ class AuthService {
             }
             referredBy = referrer.id;
         }
+        // Hash da senha
         const hashedPassword = await (0, helpers_1.hashPassword)(password);
+        // Gerar código de referência único
         let userReferralCode;
+        let attempts = 0;
         do {
             userReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-        } while (await prisma_1.default.user.findUnique({ where: { referralCode: userReferralCode } }));
+            attempts += 1;
+            if (attempts > 10) {
+                throw (0, errorHandler_1.createError)('Erro ao gerar código de afiliado', 500, 'REFERRAL_CODE_GENERATION_FAILED');
+            }
+        } while (await prisma_1.default.user.findUnique({
+            where: { referralCode: userReferralCode },
+        }));
+        // Monta dados condicionalmente para evitar conflito de tipos
+        const createData = {
+            name,
+            email: normalizedEmail,
+            password: hashedPassword,
+            referralCode: userReferralCode,
+        };
+        if (referredBy) {
+            createData.referredBy = referredBy;
+            createData.referredById = referredBy;
+        }
+        // Criar usuário
         const user = await prisma_1.default.user.create({
-            data: {
-                name,
-                email: email.toLowerCase(),
-                password: hashedPassword,
-                referralCode: userReferralCode,
-                referredBy,
-            },
+            data: createData,
             select: {
                 id: true,
                 name: true,
@@ -52,8 +86,9 @@ class AuthService {
                 createdAt: true,
             },
         });
+        // Gerar token de verificação de email
         const verificationToken = (0, helpers_1.generateSecureToken)();
-        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440'));
+        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440', 10)); // 24 horas por padrão
         await prisma_1.default.emailVerificationToken.create({
             data: {
                 token: verificationToken,
@@ -61,41 +96,54 @@ class AuthService {
                 expiresAt,
             },
         });
+        // Enviar email de verificação
         const emailSent = await email_1.default.sendVerificationEmail(user.email, user.name, verificationToken);
-        logger_1.logger.info(`👤 Novo usuário registrado: ${user.email}`);
+        logger_1.logger.info(`👤 Novo usuário registrado: ${user.email}; emailSent=${emailSent}`);
         return {
             user,
             emailSent,
         };
     }
+    /**
+     * Faz login do usuário
+     */
     async login(data) {
         const { email, password } = data;
+        const normalizedEmail = email.trim().toLowerCase();
+        logger_1.logger.info('[SERVICE][LOGIN] tentativa de login para:', { email: normalizedEmail });
+        // Buscar usuário
         const user = await prisma_1.default.user.findUnique({
-            where: { email: email.toLowerCase() },
+            where: { email: normalizedEmail },
         });
         if (!user) {
             throw (0, errorHandler_1.createError)('Email ou senha incorretos', 401, 'INVALID_CREDENTIALS');
         }
+        // Verificar senha
         const isPasswordValid = await (0, helpers_1.verifyPassword)(password, user.password);
         if (!isPasswordValid) {
             throw (0, errorHandler_1.createError)('Email ou senha incorretos', 401, 'INVALID_CREDENTIALS');
         }
+        // Verificar se conta está ativa
         if (!user.isActive) {
             throw (0, errorHandler_1.createError)('Conta desativada', 401, 'ACCOUNT_DISABLED');
         }
+        // Verificar se email foi verificado
         if (!user.isVerified) {
             throw (0, errorHandler_1.createError)('Email não verificado', 401, 'EMAIL_NOT_VERIFIED');
         }
+        // Gerar tokens
         const tokens = jwt_1.default.generateTokenPair(user);
+        // Atualizar último login
         await prisma_1.default.user.update({
             where: { id: user.id },
             data: { lastLoginAt: new Date() },
         });
+        // Salvar sessão
         await prisma_1.default.userSession.create({
             data: {
                 userId: user.id,
                 token: tokens.refreshToken,
-                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 dias
             },
         });
         logger_1.logger.info(`🔐 Login realizado: ${user.email}`);
@@ -107,11 +155,16 @@ class AuthService {
                 role: user.role,
                 isVerified: user.isVerified,
                 balance: parseFloat(user.balance.toString()),
+                referralCode: user.referralCode || null,
             },
             tokens,
         };
     }
+    /**
+     * Verifica email do usuário
+     */
     async verifyEmail(token) {
+        logger_1.logger.info('[SERVICE][VERIFY_EMAIL] verificando token:', token);
         const verificationToken = await prisma_1.default.emailVerificationToken.findUnique({
             where: { token },
             include: { user: true },
@@ -144,9 +197,14 @@ class AuthService {
         logger_1.logger.info(`✅ Email verificado: ${user.email}`);
         return { user };
     }
+    /**
+     * Reenvia email de verificação
+     */
     async resendVerification(email) {
+        const normalizedEmail = email.trim().toLowerCase();
+        logger_1.logger.info('[SERVICE][RESEND_VERIFICATION] para:', normalizedEmail);
         const user = await prisma_1.default.user.findUnique({
-            where: { email: email.toLowerCase() },
+            where: { email: normalizedEmail },
         });
         if (!user) {
             throw (0, errorHandler_1.createError)('Usuário não encontrado', 404, 'USER_NOT_FOUND');
@@ -162,7 +220,7 @@ class AuthService {
             data: { used: true },
         });
         const verificationToken = (0, helpers_1.generateSecureToken)();
-        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440'));
+        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440', 10));
         await prisma_1.default.emailVerificationToken.create({
             data: {
                 token: verificationToken,
@@ -171,12 +229,16 @@ class AuthService {
             },
         });
         const emailSent = await email_1.default.sendVerificationEmail(user.email, user.name, verificationToken);
-        logger_1.logger.info(`📧 Email de verificação reenviado: ${user.email}`);
+        logger_1.logger.info(`📧 Email de verificação reenviado: ${user.email}; emailSent=${emailSent}`);
         return { emailSent };
     }
+    /**
+     * Solicita recuperação de senha
+     */
     async forgotPassword(email) {
+        const normalizedEmail = email.trim().toLowerCase();
         const user = await prisma_1.default.user.findUnique({
-            where: { email: email.toLowerCase() },
+            where: { email: normalizedEmail },
         });
         if (!user) {
             return { emailSent: true };
@@ -189,7 +251,7 @@ class AuthService {
             data: { used: true },
         });
         const resetToken = (0, helpers_1.generateSecureToken)();
-        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.PASSWORD_RESET_EXPIRES || '60'));
+        const expiresAt = (0, helpers_1.getExpirationDate)(parseInt(process.env.PASSWORD_RESET_EXPIRES || '60', 10));
         await prisma_1.default.passwordResetToken.create({
             data: {
                 token: resetToken,
@@ -201,6 +263,9 @@ class AuthService {
         logger_1.logger.info(`🔑 Solicitação de recuperação de senha: ${user.email}`);
         return { emailSent };
     }
+    /**
+     * Redefine senha do usuário
+     */
     async resetPassword(token, newPassword) {
         const resetToken = await prisma_1.default.passwordResetToken.findUnique({
             where: { token },
@@ -231,18 +296,26 @@ class AuthService {
         logger_1.logger.info(`🔑 Senha redefinida: ${resetToken.user.email}`);
         return { success: true };
     }
+    /**
+     * Refresh token
+     */
     async refreshToken(refreshToken) {
         const session = await prisma_1.default.userSession.findUnique({
             where: { token: refreshToken },
             include: { user: true },
         });
-        if (!session || !session.isActive || session.expiresAt < new Date()) {
+        if (!session ||
+            !session.isActive ||
+            (session.expiresAt && session.expiresAt < new Date())) {
             throw (0, errorHandler_1.createError)('Refresh token inválido ou expirado', 401, 'INVALID_REFRESH_TOKEN');
         }
         const accessToken = jwt_1.default.refreshAccessToken(refreshToken);
         logger_1.logger.info(`🔄 Token renovado: ${session.user.email}`);
         return { accessToken };
     }
+    /**
+     * Logout
+     */
     async logout(refreshToken) {
         await prisma_1.default.userSession.updateMany({
             where: { token: refreshToken },
@@ -253,4 +326,3 @@ class AuthService {
     }
 }
 exports.default = new AuthService();
-//# sourceMappingURL=auth.service.js.map

@@ -7,6 +7,9 @@ const user_service_1 = __importDefault(require("./user.service"));
 const errorHandler_1 = require("../../middlewares/errorHandler");
 const logger_1 = require("../../utils/logger");
 class UserController {
+    /**
+     * Obter perfil do usuário autenticado
+     */
     async getProfile(req, res) {
         try {
             const userId = req.user?.id;
@@ -24,6 +27,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Atualizar perfil do usuário
+     */
     async updateProfile(req, res) {
         try {
             const userId = req.user?.id;
@@ -43,6 +49,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Alterar senha do usuário
+     */
     async changePassword(req, res) {
         try {
             const userId = req.user?.id;
@@ -61,6 +70,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Listar sessões ativas do usuário
+     */
     async getSessions(req, res) {
         try {
             const userId = req.user?.id;
@@ -78,6 +90,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Revogar sessão específica
+     */
     async revokeSession(req, res) {
         try {
             const userId = req.user?.id;
@@ -99,6 +114,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Revogar todas as sessões (exceto a atual)
+     */
     async revokeAllSessions(req, res) {
         try {
             const userId = req.user?.id;
@@ -118,6 +136,9 @@ class UserController {
             throw error;
         }
     }
+    /**
+     * Excluir conta do usuário
+     */
     async deleteAccount(req, res) {
         try {
             const userId = req.user?.id;
@@ -141,4 +162,3 @@ class UserController {
     }
 }
 exports.default = new UserController();
-//# sourceMappingURL=user.controller.js.map

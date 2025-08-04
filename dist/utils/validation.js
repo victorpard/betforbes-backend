@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validateRequest = exports.validate = exports.refreshTokenSchema = exports.verifyEmailSchema = exports.changePasswordSchema = exports.updateProfileSchema = exports.resendVerificationSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.loginSchema = exports.registerSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
+// Schema para registro de usuário
 exports.registerSchema = joi_1.default.object({
     name: joi_1.default.string()
         .min(2)
@@ -45,6 +46,7 @@ exports.registerSchema = joi_1.default.object({
         .allow('')
         .max(20),
 });
+// Schema para login
 exports.loginSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -59,6 +61,7 @@ exports.loginSchema = joi_1.default.object({
         'any.required': 'Senha é obrigatória',
     }),
 });
+// Schema para esqueci minha senha
 exports.forgotPasswordSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -68,6 +71,7 @@ exports.forgotPasswordSchema = joi_1.default.object({
         'any.required': 'Email é obrigatório',
     }),
 });
+// Schema para redefinir senha
 exports.resetPasswordSchema = joi_1.default.object({
     token: joi_1.default.string()
         .required()
@@ -93,6 +97,7 @@ exports.resetPasswordSchema = joi_1.default.object({
         'any.required': 'Confirmação de senha é obrigatória',
     }),
 });
+// Schema para reenvio de verificação
 exports.resendVerificationSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -102,6 +107,7 @@ exports.resendVerificationSchema = joi_1.default.object({
         'any.required': 'Email é obrigatório',
     }),
 });
+// Schema para atualização de perfil
 exports.updateProfileSchema = joi_1.default.object({
     name: joi_1.default.string()
         .min(2)
@@ -125,6 +131,7 @@ exports.updateProfileSchema = joi_1.default.object({
         'date.max': 'Data de nascimento não pode ser no futuro',
     }),
 });
+// Schema para mudança de senha
 exports.changePasswordSchema = joi_1.default.object({
     currentPassword: joi_1.default.string()
         .required()
@@ -150,6 +157,7 @@ exports.changePasswordSchema = joi_1.default.object({
         'any.required': 'Confirmação da nova senha é obrigatória',
     }),
 });
+// Schema para verificação de email
 exports.verifyEmailSchema = joi_1.default.object({
     token: joi_1.default.string()
         .required()
@@ -157,6 +165,7 @@ exports.verifyEmailSchema = joi_1.default.object({
         'any.required': 'Token de verificação é obrigatório',
     }),
 });
+// Schema para refresh token
 exports.refreshTokenSchema = joi_1.default.object({
     refreshToken: joi_1.default.string()
         .required()
@@ -164,6 +173,7 @@ exports.refreshTokenSchema = joi_1.default.object({
         'any.required': 'Refresh token é obrigatório',
     }),
 });
+// Middleware de validação
 const validate = (schema) => {
     return (req, res, next) => {
         const { error, value } = schema.validate(req.body, {
@@ -183,5 +193,5 @@ const validate = (schema) => {
     };
 };
 exports.validate = validate;
+// Alias para compatibilidade
 exports.validateRequest = exports.validate;
-//# sourceMappingURL=validation.js.map

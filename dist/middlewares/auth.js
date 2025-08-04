@@ -8,6 +8,9 @@ const jwt_1 = __importDefault(require("../lib/jwt"));
 const prisma_1 = __importDefault(require("../lib/prisma"));
 const logger_1 = require("../utils/logger");
 const helpers_1 = require("../utils/helpers");
+/**
+ * Middleware de autenticação obrigatória
+ */
 const authenticateToken = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
@@ -20,7 +23,9 @@ const authenticateToken = async (req, res, next) => {
             });
             return;
         }
+        // Verificar token JWT
         const payload = jwt_1.default.verifyAccessToken(token);
+        // Buscar usuário no banco
         const user = await prisma_1.default.user.findUnique({
             where: { id: payload.userId },
             select: {
@@ -48,6 +53,7 @@ const authenticateToken = async (req, res, next) => {
             });
             return;
         }
+        // Verificar se o email foi verificado (opcional, dependendo da rota)
         if (!user.isVerified && req.path !== '/auth/verify-email' && req.path !== '/auth/resend-verification') {
             res.status(401).json({
                 success: false,
@@ -56,7 +62,9 @@ const authenticateToken = async (req, res, next) => {
             });
             return;
         }
+        // Adicionar usuário ao request
         req.user = user;
+        // Log da ação
         logger_1.logger.info(`🔐 Usuário autenticado: ${user.email} (${user.role}) - IP: ${(0, helpers_1.getClientIP)(req)}`);
         next();
     }
@@ -70,12 +78,15 @@ const authenticateToken = async (req, res, next) => {
     }
 };
 exports.authenticateToken = authenticateToken;
+/**
+ * Middleware de autenticação opcional
+ */
 const optionalAuth = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
         const token = jwt_1.default.extractTokenFromHeader(authHeader);
         if (!token) {
-            return next();
+            return next(); // Continua sem usuário
         }
         const payload = jwt_1.default.verifyAccessToken(token);
         const user = await prisma_1.default.user.findUnique({
@@ -95,10 +106,14 @@ const optionalAuth = async (req, res, next) => {
         next();
     }
     catch (error) {
+        // Em caso de erro, continua sem usuário
         next();
     }
 };
 exports.optionalAuth = optionalAuth;
+/**
+ * Middleware para verificar roles específicos
+ */
 const requireRole = (roles) => {
     return (req, res, next) => {
         if (!req.user) {
@@ -122,6 +137,9 @@ const requireRole = (roles) => {
     };
 };
 exports.requireRole = requireRole;
+/**
+ * Middleware para verificar se o email foi verificado
+ */
 const requireVerifiedEmail = (req, res, next) => {
     if (!req.user) {
         res.status(401).json({
@@ -142,7 +160,13 @@ const requireVerifiedEmail = (req, res, next) => {
     next();
 };
 exports.requireVerifiedEmail = requireVerifiedEmail;
+/**
+ * Middleware para verificar se é admin
+ */
 exports.requireAdmin = (0, exports.requireRole)(['ADMIN']);
+/**
+ * Middleware para verificar se é admin ou moderador
+ */
 exports.requireModerator = (0, exports.requireRole)(['ADMIN', 'MODERATOR']);
+// Alias para compatibilidade
 exports.authMiddleware = exports.authenticateToken;
-//# sourceMappingURL=auth.js.map

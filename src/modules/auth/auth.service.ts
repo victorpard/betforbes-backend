@@ -2,7 +2,12 @@ import prisma from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import jwtService from '../../lib/jwt';
 import emailService from '../../utils/email';
-import { hashPassword, verifyPassword, generateSecureToken, getExpirationDate } from '../../utils/helpers';
+import {
+  hashPassword,
+  verifyPassword,
+  generateSecureToken,
+  getExpirationDate,
+} from '../../utils/helpers';
 import { createError } from '../../middlewares/errorHandler';
 import { logger } from '../../utils/logger';
 
@@ -26,6 +31,7 @@ export interface AuthResult {
     role: string;
     isVerified: boolean;
     balance: number;
+    referralCode: string | null;
   };
   tokens: {
     accessToken: string;
@@ -39,14 +45,30 @@ class AuthService {
    */
   async register(data: RegisterData): Promise<{ user: any; emailSent: boolean }> {
     const { name, email, password, referralCode } = data;
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // Verificar se email já existe
-    const existingUser = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-    });
+    logger.info('[SERVICE][REGISTER] tentar registrar email:', { original: email, normalizedEmail });
+
+    // Verificar se email já existe (com contorno via DEBUG)
+    let existingUser: any = null;
+    try {
+      existingUser = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+      });
+      logger.info('[SERVICE][REGISTER] resultado da busca de existência:', { existingUser });
+    } catch (e) {
+      logger.warn('[SERVICE][REGISTER] falha ao buscar existingUser (continuando):', { error: e });
+    }
 
     if (existingUser) {
-      throw createError('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
+      if (process.env.SKIP_EMAIL_UNIQUENESS_FOR_DEBUG === '1') {
+        logger.warn(
+          '[SERVICE][REGISTER] conflito de email detectado mas ignorado por DEBUG:',
+          normalizedEmail
+        );
+      } else {
+        throw createError('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
+      }
     }
 
     // Verificar código de referência se fornecido
@@ -73,20 +95,27 @@ class AuthService {
       userReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
       attempts += 1;
       if (attempts > 10) {
-        throw createError('Erro ao gerar código de afiliado', 500, 'REFERRAL_CODE_GENERATION_FAILED');
+        throw createError(
+          'Erro ao gerar código de afiliado',
+          500,
+          'REFERRAL_CODE_GENERATION_FAILED'
+        );
       }
-    } while (await prisma.user.findUnique({ where: { referralCode: userReferralCode } }));
+    } while (
+      await prisma.user.findUnique({
+        where: { referralCode: userReferralCode },
+      })
+    );
 
     // Monta dados condicionalmente para evitar conflito de tipos
     const createData: Prisma.UserCreateInput = {
       name,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password: hashedPassword,
       referralCode: userReferralCode,
     } as any;
 
     if (referredBy) {
-      // legacy string e relação nova
       (createData as any).referredBy = referredBy;
       (createData as any).referredById = referredBy;
     }
@@ -108,7 +137,9 @@ class AuthService {
 
     // Gerar token de verificação de email
     const verificationToken = generateSecureToken();
-    const expiresAt = getExpirationDate(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440')); // 24 horas
+    const expiresAt = getExpirationDate(
+      parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440', 10)
+    ); // 24 horas por padrão
 
     await prisma.emailVerificationToken.create({
       data: {
@@ -125,7 +156,7 @@ class AuthService {
       verificationToken
     );
 
-    logger.info(`👤 Novo usuário registrado: ${user.email}`);
+    logger.info(`👤 Novo usuário registrado: ${user.email}; emailSent=${emailSent}`);
 
     return {
       user,
@@ -138,10 +169,13 @@ class AuthService {
    */
   async login(data: LoginData): Promise<AuthResult> {
     const { email, password } = data;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    logger.info('[SERVICE][LOGIN] tentativa de login para:', { email: normalizedEmail });
 
     // Buscar usuário
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
@@ -192,6 +226,7 @@ class AuthService {
         role: user.role,
         isVerified: user.isVerified,
         balance: parseFloat(user.balance.toString()),
+        referralCode: user.referralCode || null,
       },
       tokens,
     };
@@ -201,7 +236,7 @@ class AuthService {
    * Verifica email do usuário
    */
   async verifyEmail(token: string): Promise<{ user: any }> {
-    // Buscar token
+    logger.info('[SERVICE][VERIFY_EMAIL] verificando token:', token);
     const verificationToken = await prisma.emailVerificationToken.findUnique({
       where: { token },
       include: { user: true },
@@ -219,7 +254,6 @@ class AuthService {
       throw createError('Token expirado', 400, 'TOKEN_EXPIRED');
     }
 
-    // Marcar usuário como verificado
     const user = await prisma.user.update({
       where: { id: verificationToken.userId },
       data: { isVerified: true },
@@ -233,7 +267,6 @@ class AuthService {
       },
     });
 
-    // Marcar token como usado
     await prisma.emailVerificationToken.update({
       where: { id: verificationToken.id },
       data: { used: true },
@@ -248,8 +281,11 @@ class AuthService {
    * Reenvia email de verificação
    */
   async resendVerification(email: string): Promise<{ emailSent: boolean }> {
+    const normalizedEmail = email.trim().toLowerCase();
+    logger.info('[SERVICE][RESEND_VERIFICATION] para:', normalizedEmail);
+
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
@@ -260,7 +296,6 @@ class AuthService {
       throw createError('Email já verificado', 400, 'EMAIL_ALREADY_VERIFIED');
     }
 
-    // Invalidar tokens anteriores
     await prisma.emailVerificationToken.updateMany({
       where: {
         userId: user.id,
@@ -269,9 +304,10 @@ class AuthService {
       data: { used: true },
     });
 
-    // Gerar novo token
     const verificationToken = generateSecureToken();
-    const expiresAt = getExpirationDate(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440'));
+    const expiresAt = getExpirationDate(
+      parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440', 10)
+    );
 
     await prisma.emailVerificationToken.create({
       data: {
@@ -281,14 +317,13 @@ class AuthService {
       },
     });
 
-    // Enviar email
     const emailSent = await emailService.sendVerificationEmail(
       user.email,
       user.name,
       verificationToken
     );
 
-    logger.info(`📧 Email de verificação reenviado: ${user.email}`);
+    logger.info(`📧 Email de verificação reenviado: ${user.email}; emailSent=${emailSent}`);
 
     return { emailSent };
   }
@@ -297,16 +332,15 @@ class AuthService {
    * Solicita recuperação de senha
    */
   async forgotPassword(email: string): Promise<{ emailSent: boolean }> {
+    const normalizedEmail = email.trim().toLowerCase();
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizedEmail },
     });
 
     if (!user) {
-      // Por segurança, não revelar se o email existe
       return { emailSent: true };
     }
 
-    // Invalidar tokens anteriores
     await prisma.passwordResetToken.updateMany({
       where: {
         userId: user.id,
@@ -315,9 +349,10 @@ class AuthService {
       data: { used: true },
     });
 
-    // Gerar token de reset
     const resetToken = generateSecureToken();
-    const expiresAt = getExpirationDate(parseInt(process.env.PASSWORD_RESET_EXPIRES || '60')); // 1 hora
+    const expiresAt = getExpirationDate(
+      parseInt(process.env.PASSWORD_RESET_EXPIRES || '60', 10)
+    );
 
     await prisma.passwordResetToken.create({
       data: {
@@ -327,7 +362,6 @@ class AuthService {
       },
     });
 
-    // Enviar email
     const emailSent = await emailService.sendPasswordResetEmail(
       user.email,
       user.name,
@@ -343,7 +377,6 @@ class AuthService {
    * Redefine senha do usuário
    */
   async resetPassword(token: string, newPassword: string): Promise<{ success: boolean }> {
-    // Buscar token
     const resetToken = await prisma.passwordResetToken.findUnique({
       where: { token },
       include: { user: true },
@@ -361,22 +394,18 @@ class AuthService {
       throw createError('Token expirado', 400, 'TOKEN_EXPIRED');
     }
 
-    // Hash da nova senha
     const hashedPassword = await hashPassword(newPassword);
 
-    // Atualizar senha
     await prisma.user.update({
       where: { id: resetToken.userId },
       data: { password: hashedPassword },
     });
 
-    // Marcar token como usado
     await prisma.passwordResetToken.update({
       where: { id: resetToken.id },
       data: { used: true },
     });
 
-    // Invalidar todas as sessões do usuário
     await prisma.userSession.updateMany({
       where: { userId: resetToken.userId },
       data: { isActive: false },
@@ -391,17 +420,19 @@ class AuthService {
    * Refresh token
    */
   async refreshToken(refreshToken: string): Promise<{ accessToken: string }> {
-    // Verificar se sessão existe e está ativa
     const session = await prisma.userSession.findUnique({
       where: { token: refreshToken },
       include: { user: true },
     });
 
-    if (!session || !session.isActive || session.expiresAt < new Date()) {
+    if (
+      !session ||
+      !session.isActive ||
+      (session.expiresAt && session.expiresAt < new Date())
+    ) {
       throw createError('Refresh token inválido ou expirado', 401, 'INVALID_REFRESH_TOKEN');
     }
 
-    // Gerar novo access token
     const accessToken = jwtService.refreshAccessToken(refreshToken);
 
     logger.info(`🔄 Token renovado: ${session.user.email}`);
@@ -413,7 +444,6 @@ class AuthService {
    * Logout
    */
   async logout(refreshToken: string): Promise<{ success: boolean }> {
-    // Desativar sessão
     await prisma.userSession.updateMany({
       where: { token: refreshToken },
       data: { isActive: false },

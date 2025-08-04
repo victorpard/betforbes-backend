@@ -19,9 +19,15 @@ exports.delay = delay;
 exports.retryWithBackoff = retryWithBackoff;
 const crypto_1 = __importDefault(require("crypto"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+/**
+ * Gera um token aleatório seguro
+ */
 function generateSecureToken(length = 32) {
     return crypto_1.default.randomBytes(length).toString('hex');
 }
+/**
+ * Gera um código de referência único
+ */
 function generateReferralCode(length = 6) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
@@ -30,20 +36,35 @@ function generateReferralCode(length = 6) {
     }
     return result;
 }
+/**
+ * Hash de senha com bcrypt
+ */
 async function hashPassword(password) {
     const rounds = parseInt(process.env.BCRYPT_ROUNDS || '12');
     return bcryptjs_1.default.hash(password, rounds);
 }
+/**
+ * Verifica senha com hash
+ */
 async function verifyPassword(password, hash) {
     return bcryptjs_1.default.compare(password, hash);
 }
+/**
+ * Calcula data de expiração
+ */
 function getExpirationDate(minutes) {
     return new Date(Date.now() + minutes * 60 * 1000);
 }
+/**
+ * Valida formato de email
+ */
 function isValidEmail(email) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
 }
+/**
+ * Valida força da senha
+ */
 function isStrongPassword(password) {
     const errors = [];
     if (password.length < 8) {
@@ -63,15 +84,24 @@ function isStrongPassword(password) {
         errors
     };
 }
+/**
+ * Sanitiza string removendo caracteres especiais
+ */
 function sanitizeString(str) {
     return str.replace(/[<>\"'&]/g, '');
 }
+/**
+ * Formata valor monetário
+ */
 function formatCurrency(value, currency = 'USD') {
     return new Intl.NumberFormat('pt-BR', {
         style: 'currency',
         currency: currency,
     }).format(value);
 }
+/**
+ * Gera slug a partir de string
+ */
 function generateSlug(text) {
     return text
         .toLowerCase()
@@ -82,6 +112,9 @@ function generateSlug(text) {
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-');
 }
+/**
+ * Extrai IP real do request
+ */
 function getClientIP(req) {
     return (req.headers['x-forwarded-for']?.split(',')[0] ||
         req.headers['x-real-ip'] ||
@@ -90,6 +123,9 @@ function getClientIP(req) {
         req.ip ||
         'unknown');
 }
+/**
+ * Máscara para email (ex: j***@gmail.com)
+ */
 function maskEmail(email) {
     const parts = email.split('@');
     if (parts.length !== 2)
@@ -102,9 +138,15 @@ function maskEmail(email) {
     }
     return `${username[0]}${'*'.repeat(username.length - 2)}${username[username.length - 1]}@${domain}`;
 }
+/**
+ * Delay assíncrono
+ */
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+/**
+ * Retry com backoff exponencial
+ */
 async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
     let lastError;
     for (let i = 0; i < maxRetries; i++) {
@@ -120,4 +162,3 @@ async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
     }
     throw lastError;
 }
-//# sourceMappingURL=helpers.js.map

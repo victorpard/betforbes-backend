@@ -5,6 +5,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.customValidations = exports.changePasswordSchema = exports.updateProfileSchema = exports.logoutSchema = exports.refreshTokenSchema = exports.resendVerificationSchema = exports.resetPasswordSchema = exports.forgotPasswordSchema = exports.loginSchema = exports.registerSchema = void 0;
 const joi_1 = __importDefault(require("joi"));
+// Pattern que obriga:
+// - pelo menos 1 letra minúscula
+// - pelo menos 1 letra maiúscula
+// - pelo menos 1 número
+// - pelo menos 1 caractere especial
+// - no mínimo 8 caracteres
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*\W).{8,}$/;
+// Schema para registro de usuário
 exports.registerSchema = joi_1.default.object({
     name: joi_1.default.string()
         .min(2)
@@ -28,25 +36,29 @@ exports.registerSchema = joi_1.default.object({
         'any.required': 'Email é obrigatório',
     }),
     password: joi_1.default.string()
-        .min(8)
-        .max(128)
-        .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+        .pattern(passwordPattern)
         .required()
         .messages({
         'string.empty': 'Senha é obrigatória',
-        'string.min': 'Senha deve ter pelo menos 8 caracteres',
-        'string.max': 'Senha deve ter no máximo 128 caracteres',
-        'string.pattern.base': 'Senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+        'string.pattern.base': 'Senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
         'any.required': 'Senha é obrigatória',
     }),
+    confirmPassword: joi_1.default.string()
+        .required()
+        .valid(joi_1.default.ref('password'))
+        .messages({
+        'any.only': 'As senhas não coincidem',
+        'string.empty': 'Confirmação de senha é obrigatória',
+    }),
     referralCode: joi_1.default.string()
-        .length(6)
+        .length(8)
         .uppercase()
         .optional()
         .messages({
-        'string.length': 'Código de referência deve ter exatamente 6 caracteres',
+        'string.length': 'Código de referência deve ter exatamente 8 caracteres',
     }),
 });
+// Schema para login
 exports.loginSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -66,6 +78,7 @@ exports.loginSchema = joi_1.default.object({
         'any.required': 'Senha é obrigatória',
     }),
 });
+// Schema para esqueci minha senha
 exports.forgotPasswordSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -78,6 +91,7 @@ exports.forgotPasswordSchema = joi_1.default.object({
         'any.required': 'Email é obrigatório',
     }),
 });
+// Schema para redefinir senha
 exports.resetPasswordSchema = joi_1.default.object({
     token: joi_1.default.string()
         .required()
@@ -86,18 +100,15 @@ exports.resetPasswordSchema = joi_1.default.object({
         'any.required': 'Token é obrigatório',
     }),
     password: joi_1.default.string()
-        .min(8)
-        .max(128)
-        .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+        .pattern(passwordPattern)
         .required()
         .messages({
         'string.empty': 'Nova senha é obrigatória',
-        'string.min': 'Nova senha deve ter pelo menos 8 caracteres',
-        'string.max': 'Nova senha deve ter no máximo 128 caracteres',
-        'string.pattern.base': 'Nova senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+        'string.pattern.base': 'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
         'any.required': 'Nova senha é obrigatória',
     }),
 });
+// Schema para reenviar verificação de email
 exports.resendVerificationSchema = joi_1.default.object({
     email: joi_1.default.string()
         .email()
@@ -110,6 +121,7 @@ exports.resendVerificationSchema = joi_1.default.object({
         'any.required': 'Email é obrigatório',
     }),
 });
+// Schema para refresh token
 exports.refreshTokenSchema = joi_1.default.object({
     refreshToken: joi_1.default.string()
         .required()
@@ -118,6 +130,7 @@ exports.refreshTokenSchema = joi_1.default.object({
         'any.required': 'Refresh token é obrigatório',
     }),
 });
+// Schema para logout
 exports.logoutSchema = joi_1.default.object({
     refreshToken: joi_1.default.string()
         .required()
@@ -126,6 +139,7 @@ exports.logoutSchema = joi_1.default.object({
         'any.required': 'Refresh token é obrigatório',
     }),
 });
+// Schema para atualizar perfil
 exports.updateProfileSchema = joi_1.default.object({
     name: joi_1.default.string()
         .min(2)
@@ -149,6 +163,7 @@ exports.updateProfileSchema = joi_1.default.object({
         'date.max': 'Data de nascimento não pode ser no futuro',
     }),
 });
+// Schema para alterar senha dentro do perfil
 exports.changePasswordSchema = joi_1.default.object({
     currentPassword: joi_1.default.string()
         .required()
@@ -157,18 +172,15 @@ exports.changePasswordSchema = joi_1.default.object({
         'any.required': 'Senha atual é obrigatória',
     }),
     newPassword: joi_1.default.string()
-        .min(8)
-        .max(128)
-        .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+        .pattern(passwordPattern)
         .required()
         .messages({
         'string.empty': 'Nova senha é obrigatória',
-        'string.min': 'Nova senha deve ter pelo menos 8 caracteres',
-        'string.max': 'Nova senha deve ter no máximo 128 caracteres',
-        'string.pattern.base': 'Nova senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número',
+        'string.pattern.base': 'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
         'any.required': 'Nova senha é obrigatória',
     }),
 });
+// Validações auxiliares (opcionais)
 exports.customValidations = {
     emailExists: async (email) => {
         return false;
@@ -177,44 +189,39 @@ exports.customValidations = {
         const feedback = [];
         let score = 0;
         if (password.length >= 8)
-            score += 1;
+            score++;
         else
             feedback.push('Use pelo menos 8 caracteres');
         if (password.length >= 12)
-            score += 1;
+            score++;
         else
             feedback.push('Use pelo menos 12 caracteres para maior segurança');
         if (/[a-z]/.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Inclua letras minúsculas');
         if (/[A-Z]/.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Inclua letras maiúsculas');
         if (/\d/.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Inclua números');
         if (/[^a-zA-Z\d]/.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Inclua símbolos especiais');
         if (!/(.)\1{2,}/.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Evite repetir caracteres');
         if (!/123|abc|qwe|password|admin/i.test(password))
-            score += 1;
+            score++;
         else
             feedback.push('Evite sequências ou palavras comuns');
         return { score, feedback };
     },
-    isValidToken: (token) => {
-        return /^[a-f0-9]{64}$/.test(token);
-    },
-    isValidUUID: (uuid) => {
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
-    },
+    isValidToken: (token) => /^[a-f0-9]{64}$/.test(token),
+    isValidUUID: (uuid) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid),
 };
-//# sourceMappingURL=auth.validation.js.map

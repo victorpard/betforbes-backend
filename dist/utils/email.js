@@ -6,52 +6,60 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const logger_1 = require("./logger");
 class EmailService {
-    transporter;
-    isConfigured = false;
     constructor() {
-        this.setupTransporter();
+        this.transporter = null;
+        this.isConfigured = false;
+        void this.setupTransporter();
     }
-    setupTransporter() {
+    async setupTransporter() {
         try {
-            this.transporter = nodemailer_1.default.createTransport({
-                host: process.env.SMTP_HOST,
-                port: parseInt(process.env.SMTP_PORT || '587'),
-                secure: process.env.SMTP_SECURE === 'true',
-                auth: {
-                    user: process.env.SMTP_USER,
-                    pass: process.env.SMTP_PASS,
-                },
-            });
-            this.isConfigured = !!(process.env.SMTP_HOST &&
-                process.env.SMTP_USER &&
-                process.env.SMTP_PASS);
-            if (this.isConfigured) {
-                logger_1.logger.info('📧 Serviço de email configurado com sucesso');
+            const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+            const portStr = process.env.SMTP_PORT || process.env.EMAIL_PORT || "587";
+            const port = parseInt(portStr, 10);
+            const secure = (process.env.SMTP_SECURE || "false") === "true";
+            const user = process.env.SMTP_USER || process.env.EMAIL_USER;
+            const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS;
+            if (!host || !user || !pass) {
+                this.isConfigured = false;
+                logger_1.logger.warn("⚠️ Serviço de email não configurado - falta HOST/USER/PASS");
+                return;
             }
-            else {
-                logger_1.logger.warn('⚠️  Serviço de email não configurado - emails não serão enviados');
+            this.transporter = nodemailer_1.default.createTransport({
+                host,
+                port,
+                secure, // true = TLS, false = STARTTLS
+                auth: { user, pass },
+            });
+            try {
+                await this.transporter.verify();
+                this.isConfigured = true;
+                logger_1.logger.info("✅ Serviço de email configurado com sucesso e verificado");
+            }
+            catch (verifyErr) {
+                this.isConfigured = false;
+                logger_1.logger.error("❌ Falha ao verificar transporte de email:", verifyErr);
             }
         }
         catch (error) {
-            logger_1.logger.error('❌ Erro ao configurar serviço de email:', error);
+            logger_1.logger.error("❌ Erro ao configurar serviço de email:", error);
             this.isConfigured = false;
         }
     }
     async sendEmail(options) {
-        if (!this.isConfigured) {
-            logger_1.logger.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} para ${options.to}`);
+        if (!this.isConfigured || !this.transporter) {
+            logger_1.logger.warn(`📨 Email não enviado (serviço não configurado): ${options.subject} para ${options.to}`);
             return false;
         }
         try {
             const mailOptions = {
-                from: process.env.EMAIL_FROM || 'BetForbes <noreply@betforbes.com>',
+                from: process.env.EMAIL_FROM || "BetForbes <noreply@betforbes.com>",
                 to: options.to,
                 subject: options.subject,
                 html: options.html,
                 text: options.text,
             };
-            const result = await this.transporter.sendMail(mailOptions);
-            logger_1.logger.info(`📧 Email enviado com sucesso: ${options.subject} para ${options.to}`);
+            await this.transporter.sendMail(mailOptions);
+            logger_1.logger.info(`📨 Email enviado com sucesso: ${options.subject} para ${options.to}`);
             return true;
         }
         catch (error) {
@@ -79,7 +87,7 @@ class EmailService {
       <body>
         <div class="container">
           <div class="header">
-            <h1>🎯 BetForbes</h1>
+            <h1>BetForbes</h1>
           </div>
           <div class="content">
             <h2>Olá, ${name}!</h2>
@@ -103,18 +111,18 @@ class EmailService {
       </html>
     `;
         const text = `
-      Olá, ${name}!
-      
-      Bem-vindo ao BetForbes! Para completar seu cadastro, acesse o link abaixo:
-      ${verificationUrl}
-      
-      Este link expira em 24 horas.
-      
-      Se você não criou uma conta no BetForbes, pode ignorar este email.
+Olá, ${name}!
+
+Bem-vindo ao BetForbes! Para completar seu cadastro, acesse o link abaixo:
+${verificationUrl}
+
+Este link expira em 24 horas.
+
+Se você não criou uma conta no BetForbes, pode ignorar este email.
     `;
         return this.sendEmail({
             to: email,
-            subject: '🎯 Verificação de Email - BetForbes',
+            subject: "🔐 Verificação de Email - BetForbes",
             html,
             text,
         });
@@ -126,7 +134,7 @@ class EmailService {
       <html>
       <head>
         <meta charset="utf-8">
-        <title>Recuperação de Senha - BetForbes</title>
+        <title>Redefinição de Senha - BetForbes</title>
         <style>
           body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -134,21 +142,17 @@ class EmailService {
           .content { background: #f9f9f9; padding: 30px; }
           .button { display: inline-block; background: #FFD700; color: #000; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; }
           .footer { background: #333; color: #fff; padding: 20px; text-align: center; font-size: 12px; }
-          .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>🎯 BetForbes</h1>
+            <h1>BetForbes</h1>
           </div>
           <div class="content">
             <h2>Olá, ${name}!</h2>
-            <p>Recebemos uma solicitação para redefinir a senha da sua conta no BetForbes.</p>
-            <div class="warning">
-              <strong>⚠️ Importante:</strong> Se você não solicitou esta alteração, ignore este email. Sua senha permanecerá inalterada.
-            </div>
-            <p>Para redefinir sua senha, clique no botão abaixo:</p>
+            <p>Recebemos uma solicitação para redefinir sua senha.</p>
+            <p>Clique no botão abaixo para criar uma nova senha:</p>
             <p style="text-align: center; margin: 30px 0;">
               <a href="${resetUrl}" class="button">Redefinir Senha</a>
             </p>
@@ -156,7 +160,8 @@ class EmailService {
             <p style="word-break: break-all; background: #eee; padding: 10px; border-radius: 3px;">
               ${resetUrl}
             </p>
-            <p><strong>Este link expira em 1 hora por segurança.</strong></p>
+            <p><strong>Este link expira em 1 hora.</strong></p>
+            <p>Se você não solicitou a redefinição, pode ignorar este email.</p>
           </div>
           <div class="footer">
             <p>&copy; 2024 BetForbes. Todos os direitos reservados.</p>
@@ -166,27 +171,22 @@ class EmailService {
       </html>
     `;
         const text = `
-      Olá, ${name}!
-      
-      Recebemos uma solicitação para redefinir a senha da sua conta no BetForbes.
-      
-      Para redefinir sua senha, acesse o link abaixo:
-      ${resetUrl}
-      
-      Este link expira em 1 hora por segurança.
-      
-      Se você não solicitou esta alteração, ignore este email.
+Olá, ${name}!
+
+Recebemos uma solicitação para redefinir sua senha.
+Acesse o link abaixo para criar uma nova senha:
+${resetUrl}
+
+Este link expira em 1 hora.
+
+Se você não solicitou a redefinição, pode ignorar este email.
     `;
         return this.sendEmail({
             to: email,
-            subject: '🔐 Recuperação de Senha - BetForbes',
+            subject: "🔒 Redefinição de Senha - BetForbes",
             html,
             text,
         });
     }
-    isReady() {
-        return this.isConfigured;
-    }
 }
 exports.default = new EmailService();
-//# sourceMappingURL=email.js.map
