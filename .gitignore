@@ -9,3 +9,5 @@ logs/
 .github/fluxos de trabalho/
 /frontend/dist/
 .env
+.npm/
+.npm/_cacache/
