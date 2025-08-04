@@ -1,0 +1,19 @@
+import { Router } from 'express';
+import AuthController from '../modules/auth/auth.controller';
+import { authenticateToken } from '../middlewares/auth';
+
+const router = Router();
+
+// Rota de cadastro     → POST /api/auth/register
+router.post('/register', AuthController.register);
+
+// Rota de login       → POST /api/auth/login
+router.post('/login',    AuthController.login);
+
+// Rota de logout      → POST /api/auth/logout
+router.post('/logout',   AuthController.logout);
+
+// Rota de perfil      → GET  /api/auth/me
+router.get('/me', authenticateToken, AuthController.getProfile);
+
+export default router;

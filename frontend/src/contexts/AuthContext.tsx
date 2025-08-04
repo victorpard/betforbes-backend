@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { apiService, AuthResponse, LoginRequest, RegisterRequest } from '../services/apiService';
 import { toast } from 'react-toastify';
 
@@ -33,17 +33,26 @@ const AuthContext = createContext<AuthContextType>({
   clearError: () => {},
 });
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  const isAuthenticated = user !== null;
+  const isAuthenticated = !!user;
 
+  // Reidrata e valida o token ao montar
   useEffect(() => {
-    const validateAuth = async () => {
+    const initializeAuth = async () => {
+      const storedToken = localStorage.getItem('accessToken');
+      if (!storedToken) {
+        apiService.clearAuthData();
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
       try {
+        // Assume apiService.validateToken usa o token armazenado internamente
         const response = await apiService.validateToken();
         if (response.success && response.user) {
           setUser(response.user);
@@ -53,15 +62,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           apiService.clearAuthData();
           console.log('🔴 AuthContext: Token inválido');
         }
-      } catch (error) {
-        console.error('❌ AuthContext: Erro na validação do token', error);
+      } catch (err) {
+        console.error('❌ AuthContext: Erro na validação do token', err);
         setUser(null);
         apiService.clearAuthData();
       } finally {
         setIsLoading(false);
       }
     };
-    validateAuth();
+    initializeAuth();
   }, []);
 
   const login = async (email: string, password: string): Promise<void> => {
@@ -69,29 +78,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
     try {
       console.log('🔐 AuthContext: Iniciando login...');
-      const res = await apiService.login({ email, password });
+      const res = await apiService.login({ email, password } as LoginRequest) as AuthResponse;
       console.log('📦 AuthContext: Resposta do login:', res);
 
-      if (!res?.success) {
-        throw new Error(res?.message || 'Falha no login');
+      if (!res.success || !res.data.tokens.accessToken) {
+        throw new Error(res.message || 'Falha no login');
       }
 
-      const { tokens, user: userData } = res.data;
-
-      if (!tokens?.accessToken) {
-        throw new Error('Token de acesso não recebido do servidor');
-      }
-
-      // O apiService já salva o token internamente
-      setUser(userData);
+      // apiService.login já persiste o token e configura headers
+      setUser(res.data.user);
       toast.success('🎉 Login realizado com sucesso!');
       console.log('✅ AuthContext: Login bem-sucedido');
     } catch (err: any) {
       console.error('❌ AuthContext: Erro no login:', err);
       setUser(null);
-      setError(err.response?.data?.message || err.message || 'Erro ao fazer login');
+      const msg = err.response?.data?.message || err.message || 'Erro ao fazer login';
+      setError(msg);
       apiService.clearAuthData();
-      toast.error(err.response?.data?.message || err.message || 'Erro ao fazer login');
+      toast.error(msg);
       throw err;
     } finally {
       setIsLoading(false);
@@ -102,18 +106,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setError(null);
     try {
-      const res = await apiService.register({ name, email, password });
-      if (!res?.success) {
-        throw new Error(res?.message || 'Falha no registro');
+      const res = await apiService.register({ name, email, password } as RegisterRequest) as AuthResponse;
+      if (!res.success || !res.data.tokens.accessToken) {
+        throw new Error(res.message || 'Falha no registro');
       }
-      const { token, user: userData } = res;
-      // O apiService já salva o token internamente
-      setUser(userData);
+
+      // apiService.register já persiste o token e configura headers
+      setUser(res.data.user);
       toast.success('🎉 Registro realizado com sucesso!');
+      console.log('✅ AuthContext: Registro bem-sucedido');
     } catch (err: any) {
       console.error('❌ AuthContext: Erro no registro:', err);
-      setError(err.response?.data?.message || err.message || 'Erro ao registrar');
-      toast.error(err.response?.data?.message || err.message || 'Erro ao registrar');
+      const msg = err.response?.data?.message || err.message || 'Erro ao registrar';
+      setError(msg);
+      apiService.clearAuthData();
+      toast.error(msg);
       throw err;
     } finally {
       setIsLoading(false);
@@ -124,8 +131,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       console.log('🔒 AuthContext: Logout iniciado');
       await apiService.logout();
-    } catch (error) {
-      console.error('Erro no logout:', error);
+    } catch (err) {
+      console.error('❌ AuthContext: Erro no logout', err);
     } finally {
       setUser(null);
       apiService.clearAuthData();
@@ -153,10 +160,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
-export const useAuth = () => {
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth deve ser usado dentro de um AuthProvider');
   return context;
 };
-
-

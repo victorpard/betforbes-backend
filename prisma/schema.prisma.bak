@@ -37,12 +37,9 @@ model User {
   balance                 Decimal                  @default(1000) @db.Decimal(18, 8)
   referralCode            String?                  @unique
 
-  // compatibilidade legacy
-  referredBy              String?
-
-  // novo relacionamento de afiliados (sem colidir com o legacy)
+  // Relação de afiliados
   referredById           String?
-  referredByUser         User?     @relation("referrals", fields: [referredById], references: [id])
+  referredBy             User?     @relation("referrals", fields: [referredById], references: [id])
   referrals              User[]    @relation("referrals")
 
   verificationToken       String?
@@ -76,7 +73,7 @@ model SystemConfig {
   value     String
   type      ConfigType @default(STRING)
   createdAt DateTime   @default(now())
-  updatedAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 
   @@map("system_configs")
 }
