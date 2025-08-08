@@ -5,8 +5,9 @@ export interface EmailOptions {
     text?: string;
 }
 declare class EmailService {
-    private transporter;
+    private transporter?;
     private isConfigured;
+    private emailEnabled;
     constructor();
     private setupTransporter;
     sendEmail(options: EmailOptions): Promise<boolean>;

@@ -62,11 +62,18 @@ class EmailService {
    */
   async sendEmail(options: EmailOptions): Promise<boolean> {
     if (!this.emailEnabled) {
-      logger.warn(`📪 EMAIL_ENABLED=false — pulando envio: ${options.subject} -> ${options.to}`);
-      return true; // considera "sucesso" em modo desativado
+      logger.warn('📪 EMAIL_ENABLED=false — pulando envio', {
+        to: options.to,
+        subject: options.subject,
+      });
+      // Considera "sucesso" em modo desativado para não quebrar fluxos de teste
+      return true;
     }
     if (!this.isConfigured || !this.transporter) {
-      logger.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} -> ${options.to}`);
+      logger.warn('📧 Email não enviado (serviço não configurado)', {
+        to: options.to,
+        subject: options.subject,
+      });
       return false;
     }
 
@@ -76,17 +83,28 @@ class EmailService {
       'BetForbes <noreply@betforbes.com>';
 
     try {
-      await this.transporter.sendMail({
+      const info = await this.transporter.sendMail({
         from,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
       });
-      logger.info(`📧 Email enviado com sucesso: ${options.subject} para ${options.to}`);
+
+      // Log rico com messageId/response para rastreabilidade
+      logger.info('📧 Email enviado com sucesso', {
+        to: options.to,
+        subject: options.subject,
+        messageId: (info as any)?.messageId,
+        response: (info as any)?.response,
+      });
       return true;
     } catch (error) {
-      logger.error(`❌ Erro ao enviar email para ${options.to}:`, error as any);
+      logger.error('❌ Erro ao enviar email', {
+        to: options.to,
+        subject: options.subject,
+        error: error instanceof Error ? error.message : String(error),
+      });
       return false;
     }
   }
