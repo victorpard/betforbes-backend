@@ -19,3 +19,4 @@ logs/
 # Backups internos
 /repo.git
 /repo-clean.git
+coverage/
