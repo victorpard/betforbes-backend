@@ -8,37 +8,49 @@ export interface EmailOptions {
   text?: string;
 }
 
+const parseBool = (val: unknown, def = false): boolean => {
+  const s = String(val ?? '').trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  return def;
+};
+
 class EmailService {
-  private transporter!: nodemailer.Transporter;
-  private isConfigured: boolean = false;
+  private transporter?: nodemailer.Transporter;
+  private isConfigured = false;
+  private emailEnabled = parseBool(process.env.EMAIL_ENABLED, true);
 
   constructor() {
     this.setupTransporter();
   }
 
   private setupTransporter() {
+    if (!this.emailEnabled) {
+      this.isConfigured = false;
+      logger.warn('⚠️ EMAIL_ENABLED=false — serviço de email desativado; nenhum email será enviado');
+      return;
+    }
+
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = parseBool(process.env.SMTP_SECURE, port === 465); // 465 => TLS
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    this.isConfigured = Boolean(host && user && pass);
+    if (!this.isConfigured) {
+      logger.warn('⚠️ Serviço de email não configurado (verifique SMTP_HOST/USER/PASS) — emails não serão enviados');
+      return;
+    }
+
     try {
       this.transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
+        host,
+        port,
+        secure,
+        auth: { user, pass },
       });
-
-      this.isConfigured = !!(
-        process.env.SMTP_HOST &&
-        process.env.SMTP_USER &&
-        process.env.SMTP_PASS
-      );
-
-      if (this.isConfigured) {
-        logger.info('📧 Serviço de email configurado com sucesso');
-      } else {
-        logger.warn('⚠️  Serviço de email não configurado - emails não serão enviados');
-      }
+      logger.info('📧 Serviço de email configurado com sucesso');
     } catch (error) {
       logger.error('❌ Erro ao configurar serviço de email:', error);
       this.isConfigured = false;
@@ -49,25 +61,32 @@ class EmailService {
    * Envia um email
    */
   async sendEmail(options: EmailOptions): Promise<boolean> {
-    if (!this.isConfigured) {
-      logger.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} para ${options.to}`);
+    if (!this.emailEnabled) {
+      logger.warn(`📪 EMAIL_ENABLED=false — pulando envio: ${options.subject} -> ${options.to}`);
+      return true; // considera "sucesso" em modo desativado
+    }
+    if (!this.isConfigured || !this.transporter) {
+      logger.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} -> ${options.to}`);
       return false;
     }
 
+    const from =
+      process.env.MAIL_FROM ||
+      process.env.EMAIL_FROM ||
+      'BetForbes <noreply@betforbes.com>';
+
     try {
-      const mailOptions = {
-        from: process.env.EMAIL_FROM || 'BetForbes <noreply@betforbes.com>',
+      await this.transporter.sendMail({
+        from,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
-      };
-
-      const result = await this.transporter.sendMail(mailOptions);
+      });
       logger.info(`📧 Email enviado com sucesso: ${options.subject} para ${options.to}`);
       return true;
     } catch (error) {
-      logger.error(`❌ Erro ao enviar email para ${options.to}:`, error);
+      logger.error(`❌ Erro ao enviar email para ${options.to}:`, error as any);
       return false;
     }
   }
@@ -76,8 +95,9 @@ class EmailService {
    * Envia email de verificação
    */
   async sendVerificationEmail(email: string, name: string, token: string): Promise<boolean> {
-    const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
-    
+    const base = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const verificationUrl = `${base}/verify-email?token=${token}`;
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -122,12 +142,12 @@ class EmailService {
 
     const text = `
       Olá, ${name}!
-      
+
       Bem-vindo ao BetForbes! Para completar seu cadastro, acesse o link abaixo:
       ${verificationUrl}
-      
+
       Este link expira em 24 horas.
-      
+
       Se você não criou uma conta no BetForbes, pode ignorar este email.
     `;
 
@@ -143,8 +163,9 @@ class EmailService {
    * Envia email de recuperação de senha
    */
   async sendPasswordResetEmail(email: string, name: string, token: string): Promise<boolean> {
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
-    
+    const base = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const resetUrl = `${base}/reset-password?token=${token}`;
+
     const html = `
       <!DOCTYPE html>
       <html>
@@ -192,14 +213,14 @@ class EmailService {
 
     const text = `
       Olá, ${name}!
-      
+
       Recebemos uma solicitação para redefinir a senha da sua conta no BetForbes.
-      
+
       Para redefinir sua senha, acesse o link abaixo:
       ${resetUrl}
-      
+
       Este link expira em 1 hora por segurança.
-      
+
       Se você não solicitou esta alteração, ignore este email.
     `;
 
@@ -215,9 +236,8 @@ class EmailService {
    * Verifica se o serviço está configurado
    */
   isReady(): boolean {
-    return this.isConfigured;
+    return this.emailEnabled && this.isConfigured;
   }
 }
 
 export default new EmailService();
-
