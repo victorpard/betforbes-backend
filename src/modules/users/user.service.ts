@@ -1,7 +1,7 @@
 import prisma from '../../lib/prisma';
 import { hashPassword, verifyPassword } from '../../utils/helpers';
 import { createError } from '../../middlewares/errorHandler';
-import { logger } from '../../utils/logger';
+import logger from '../../utils/logger';
 
 export interface UpdateProfileData {
   name?: string;

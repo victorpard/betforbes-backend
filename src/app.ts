@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -7,6 +7,14 @@ import { rateLimiter } from './middlewares/rateLimiter';
 import apiRouter from './routes'; // certifique-se de que em src/routes/index.ts há: export default router;
 
 const app = express();
+app.use("/api/auth/profile", (req: Request, res: Response, next: NextFunction): void => {
+  const auth = req.headers["authorization"];
+  if (!auth || !auth.startsWith("Bearer ")) {
+    res.status(401).json({ success: false, code: "UNAUTHORIZED" });
+  return;
+  }
+  next();
+});
 
 // configurações básicas de segurança e parsing
 app.use(helmet());

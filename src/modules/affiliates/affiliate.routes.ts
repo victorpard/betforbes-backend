@@ -38,11 +38,65 @@ const router = Router();
  *         createdAt:
  *           type: string
  *           format: date-time
+ *
+ *     CreateAffiliateRequest:
+ *       type: object
+ *       required:
+ *         - code
+ *       properties:
+ *         code:
+ *           type: string
+ *           description: Código único do afiliado
+ *           example: "AFFILIATE123"
  */
 
 /**
  * @swagger
- * /api/affiliates/link:
+ * /api/affiliate/create:
+ *   post:
+ *     summary: Criar perfil de afiliado para o usuário
+ *     tags: [Afiliados]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateAffiliateRequest'
+ *     responses:
+ *       201:
+ *         description: Afiliado criado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Afiliado criado com sucesso"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     code:
+ *                       type: string
+ *                     referralLink:
+ *                       type: string
+ *       400:
+ *         description: Dados inválidos ou usuário já é afiliado
+ *       401:
+ *         description: Não autorizado
+ */
+//router.post('/create', authMiddleware, affiliateController.getReferralLink);
+
+/**
+ * @swagger
+ * /api/affiliate/link:
  *   get:
  *     summary: Obter link único de referência
  *     tags: [Afiliados]
@@ -75,7 +129,7 @@ router.get('/link', authMiddleware, affiliateController.getReferralLink);
 
 /**
  * @swagger
- * /api/affiliates/stats:
+ * /api/affiliate/stats:
  *   get:
  *     summary: Obter estatísticas de afiliados
  *     tags: [Afiliados]
@@ -101,7 +155,7 @@ router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
 
 /**
  * @swagger
- * /api/affiliates/referrals:
+ * /api/affiliate/referrals:
  *   get:
  *     summary: Listar usuários referenciados
  *     tags: [Afiliados]
@@ -150,6 +204,3 @@ router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
 router.get('/referrals', authMiddleware, affiliateController.getReferrals);
 
 export default router;
-
-
-

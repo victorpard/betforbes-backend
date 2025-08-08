@@ -1,0 +1,32 @@
+*** Begin Patch
+*** Update File: src/modules/auth/auth.controller.ts
+@@ async refreshToken(req: Request, res: Response, next: NextFunction) {
+-    } catch (err) {
+-      next(err);
+-    }
++    } catch (err) {
++      // Se for token inválido ou expirado, retorna 401 UNAUTHORIZED
++      if (err.message.includes('Refresh token inválido') || err.message.includes('já expirou')) {
++        return res.status(401).json({
++          success: false,
++          code: 'UNAUTHORIZED',
++          message: err.message
++        });
++      }
++      next(err);
++    }
+@@ async logout(req: Request, res: Response, next: NextFunction) {
+-    } catch (err) {
+-      next(err);
+-    }
++    } catch (err) {
++      if (err.message.includes('Refresh token inválido') || err.message.includes('já expirado')) {
++        return res.status(401).json({
++          success: false,
++          code: 'UNAUTHORIZED',
++          message: err.message
++        });
++      }
++      next(err);
++    }
+*** End Patch

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwtService from '../lib/jwt';
 import prisma from '../lib/prisma';
-import { logger } from '../utils/logger';
+import logger from '../utils/logger';
 import { getClientIP } from '../utils/helpers';
 
 // Estender interface Request para incluir user

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import userService from './user.service';
 import { createError } from '../../middlewares/errorHandler';
-import { logger } from '../../utils/logger';
+import logger from '../../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user?: {

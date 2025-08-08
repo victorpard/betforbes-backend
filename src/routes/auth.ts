@@ -1,8 +1,11 @@
+import { authMiddleware } from '../middlewares/auth';
+import { Router } from 'express';
+// Importa diretamente o router definido em auth.controller.ts
+import authControllerRouter from '../modules/auth/auth.controller';
 
-/**
- * Aqui só reexportamos o Router que já foi
- * configurado em src/modules/auth/auth.controller.ts
- */
+const router = Router();
 
-import authRouter from '../modules/auth/auth.controller';
-export default authRouter;
+// Todas as rotas de /api/auth/* são delegadas ao router do módulo
+router.use('/', authControllerRouter);
+
+export default router;

@@ -11,3 +11,11 @@ logs/
 .env
 .npm/
 .npm/_cacache/
+
+# Build e deps
+/dist
+/node_modules
+
+# Backups internos
+/repo.git
+/repo-clean.git

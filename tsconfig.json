@@ -3,11 +3,10 @@
     "target": "ES2022",
     "module": "commonjs",
     "lib": ["ES2022"],
-    "outDir": "./dist",
     "rootDir": "./src",
+    "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
@@ -24,22 +23,18 @@
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "exactOptionalPropertyTypes": true,
-    "baseUrl": "./src",
+    "skipLibCheck": true,
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
-      "@/modules/*": ["./modules/*"],
-      "@/lib/*": ["./lib/*"],
-      "@/utils/*": ["./utils/*"],
-      "@/middlewares/*": ["./middlewares/*"]
-    }
+      "@/*": ["src/*"],
+      "@/modules/*": ["src/modules/*"],
+      "@/lib/*": ["src/lib/*"],
+      "@/utils/*": ["src/utils/*"],
+      "@/middlewares/*": ["src/middlewares/*"]
+    },
+    "typeRoots": ["node_modules/@types"],
+    "types": ["node", "jest"]
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "prisma"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "prisma"]
 }
-
