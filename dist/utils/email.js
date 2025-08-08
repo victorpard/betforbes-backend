@@ -4,7 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const nodemailer_1 = __importDefault(require("nodemailer"));
-const logger_1 = require("./logger");
+const logger_1 = __importDefault(require("./logger"));
 class EmailService {
     transporter;
     isConfigured = false;
@@ -26,20 +26,20 @@ class EmailService {
                 process.env.SMTP_USER &&
                 process.env.SMTP_PASS);
             if (this.isConfigured) {
-                logger_1.logger.info('📧 Serviço de email configurado com sucesso');
+                logger_1.default.info('📧 Serviço de email configurado com sucesso');
             }
             else {
-                logger_1.logger.warn('⚠️  Serviço de email não configurado - emails não serão enviados');
+                logger_1.default.warn('⚠️  Serviço de email não configurado - emails não serão enviados');
             }
         }
         catch (error) {
-            logger_1.logger.error('❌ Erro ao configurar serviço de email:', error);
+            logger_1.default.error('❌ Erro ao configurar serviço de email:', error);
             this.isConfigured = false;
         }
     }
     async sendEmail(options) {
         if (!this.isConfigured) {
-            logger_1.logger.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} para ${options.to}`);
+            logger_1.default.warn(`📧 Email não enviado (serviço não configurado): ${options.subject} para ${options.to}`);
             return false;
         }
         try {
@@ -51,11 +51,11 @@ class EmailService {
                 text: options.text,
             };
             const result = await this.transporter.sendMail(mailOptions);
-            logger_1.logger.info(`📧 Email enviado com sucesso: ${options.subject} para ${options.to}`);
+            logger_1.default.info(`📧 Email enviado com sucesso: ${options.subject} para ${options.to}`);
             return true;
         }
         catch (error) {
-            logger_1.logger.error(`❌ Erro ao enviar email para ${options.to}:`, error);
+            logger_1.default.error(`❌ Erro ao enviar email para ${options.to}:`, error);
             return false;
         }
     }

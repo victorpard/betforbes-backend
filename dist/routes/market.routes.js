@@ -1,19 +1,22 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const price_service_1 = require("../modules/market/price.service");
-const logger_1 = require("../utils/logger");
+const logger_1 = __importDefault(require("../utils/logger"));
 const router = (0, express_1.Router)();
 router.get('/', async (req, res) => {
     const startTime = Date.now();
     try {
-        logger_1.logger.info('Requisição para listar assets', {
+        logger_1.default.info('Requisição para listar assets', {
             ip: req.ip,
             userAgent: req.get('User-Agent')
         });
         const assets = await (0, price_service_1.listAssets)();
         const duration = Date.now() - startTime;
-        logger_1.logger.info(`Assets listados com sucesso em ${duration}ms`, {
+        logger_1.default.info(`Assets listados com sucesso em ${duration}ms`, {
             count: assets.length,
             duration
         });
@@ -26,7 +29,7 @@ router.get('/', async (req, res) => {
     }
     catch (err) {
         const duration = Date.now() - startTime;
-        logger_1.logger.error('Erro ao listar assets', {
+        logger_1.default.error('Erro ao listar assets', {
             error: err.message,
             stack: err.stack,
             duration,
@@ -44,7 +47,7 @@ router.get('/:pair', async (req, res) => {
     const rawPair = req.params.pair;
     try {
         if (!rawPair) {
-            logger_1.logger.warn('Requisição sem par especificado', { ip: req.ip });
+            logger_1.default.warn('Requisição sem par especificado', { ip: req.ip });
             return res.status(400).json({
                 success: false,
                 message: 'Par inválido ou não especificado',
@@ -52,7 +55,7 @@ router.get('/:pair', async (req, res) => {
             });
         }
         const pair = decodeURIComponent(rawPair);
-        logger_1.logger.info(`Requisição para ticker do par: ${pair}`, {
+        logger_1.default.info(`Requisição para ticker do par: ${pair}`, {
             rawPair,
             decodedPair: pair,
             ip: req.ip,
@@ -60,7 +63,7 @@ router.get('/:pair', async (req, res) => {
         });
         const ticker = await (0, price_service_1.fetchTicker)(pair);
         const duration = Date.now() - startTime;
-        logger_1.logger.info(`Ticker obtido com sucesso para ${pair} em ${duration}ms`, {
+        logger_1.default.info(`Ticker obtido com sucesso para ${pair} em ${duration}ms`, {
             pair,
             duration,
             price: ticker.price
@@ -77,7 +80,7 @@ router.get('/:pair', async (req, res) => {
     catch (err) {
         const duration = Date.now() - startTime;
         const pair = rawPair ? decodeURIComponent(rawPair) : 'unknown';
-        logger_1.logger.error(`Erro ao buscar ticker para ${pair}`, {
+        logger_1.default.error(`Erro ao buscar ticker para ${pair}`, {
             pair,
             rawPair,
             error: err.message,
@@ -112,7 +115,7 @@ router.get('/health', async (_req, res) => {
         });
     }
     catch (err) {
-        logger_1.logger.error('Health check falhou para API de mercados', {
+        logger_1.default.error('Health check falhou para API de mercados', {
             error: err.message
         });
         return res.status(503).json({

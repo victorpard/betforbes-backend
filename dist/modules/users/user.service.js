@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const prisma_1 = __importDefault(require("../../lib/prisma"));
 const helpers_1 = require("../../utils/helpers");
 const errorHandler_1 = require("../../middlewares/errorHandler");
-const logger_1 = require("../../utils/logger");
+const logger_1 = __importDefault(require("../../utils/logger"));
 class UserService {
     async getProfile(userId) {
         const user = await prisma_1.default.user.findUnique({
@@ -69,7 +69,7 @@ class UserService {
                 lastLoginAt: true,
             },
         });
-        logger_1.logger.info(`👤 Perfil atualizado: ${user.email}`);
+        logger_1.default.info(`👤 Perfil atualizado: ${user.email}`);
         return {
             ...user,
             balance: parseFloat(user.balance.toString()),
@@ -99,7 +99,7 @@ class UserService {
             where: { userId },
             data: { isActive: false },
         });
-        logger_1.logger.info(`🔑 Senha alterada: ${user.email}`);
+        logger_1.default.info(`🔑 Senha alterada: ${user.email}`);
         return { success: true };
     }
     async getSessions(userId) {
@@ -134,7 +134,7 @@ class UserService {
             where: { id: sessionId },
             data: { isActive: false },
         });
-        logger_1.logger.info(`🔒 Sessão revogada: ${sessionId}`);
+        logger_1.default.info(`🔒 Sessão revogada: ${sessionId}`);
         return { success: true };
     }
     async revokeAllSessions(userId, currentToken) {
@@ -149,7 +149,7 @@ class UserService {
             where: whereClause,
             data: { isActive: false },
         });
-        logger_1.logger.info(`🔒 ${result.count} sessões revogadas para usuário: ${userId}`);
+        logger_1.default.info(`🔒 ${result.count} sessões revogadas para usuário: ${userId}`);
         return result.count;
     }
     async deleteAccount(userId, password) {
@@ -164,7 +164,7 @@ class UserService {
             throw (0, errorHandler_1.createError)('Senha incorreta', 400, 'INVALID_PASSWORD');
         }
         await prisma_1.default.user.delete({ where: { id: userId } });
-        logger_1.logger.info(`🗑️  Conta excluída: ${user.email}`);
+        logger_1.default.info(`🗑️  Conta excluída: ${user.email}`);
         return { success: true };
     }
     async getUserStats(userId) {

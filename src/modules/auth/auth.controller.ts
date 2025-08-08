@@ -1,7 +1,8 @@
+import prisma from '../../lib/prisma';
 import { Request, Response, Router } from 'express';
 import authService from './auth.service';
 import { asyncHandler } from '../../middlewares/errorHandler';
-import { logger } from '../../utils/logger';
+import logger from '../../utils/logger';
 import { getClientIP } from '../../utils/helpers';
 import {
   registerSchema,
@@ -12,6 +13,7 @@ import {
   refreshTokenSchema,
   logoutSchema,
 } from './auth.validation';
+import { authenticateToken } from '../../middlewares/auth';
 
 const router = Router();
 
@@ -19,6 +21,9 @@ router.post(
   '/register',
   asyncHandler(async (req: Request, res: Response) => {
     // validação
+    // Auto-preenchimento para não quebrar validação
+    req.body.confirmPassword = req.body.password;
+
     const { error: vErr } = registerSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
       const msg = vErr.details.map(d => d.message).join(' ');

@@ -8,7 +8,7 @@ const jwt_1 = __importDefault(require("../../lib/jwt"));
 const email_1 = __importDefault(require("../../utils/email"));
 const helpers_1 = require("../../utils/helpers");
 const errorHandler_1 = require("../../middlewares/errorHandler");
-const logger_1 = require("../../utils/logger");
+const logger_1 = __importDefault(require("../../utils/logger"));
 class AuthService {
     async register(data) {
         const { name, email, password, referralCode } = data;
@@ -62,7 +62,7 @@ class AuthService {
             },
         });
         const emailSent = await email_1.default.sendVerificationEmail(user.email, user.name, verificationToken);
-        logger_1.logger.info(`👤 Novo usuário registrado: ${user.email}`);
+        logger_1.default.info(`👤 Novo usuário registrado: ${user.email}`);
         return {
             user,
             emailSent,
@@ -84,7 +84,7 @@ class AuthService {
             throw (0, errorHandler_1.createError)('Conta desativada', 401, 'ACCOUNT_DISABLED');
         }
         if (!user.isVerified) {
-            throw (0, errorHandler_1.createError)('Email não verificado', 401, 'EMAIL_NOT_VERIFIED');
+            throw (0, errorHandler_1.createError)("Email não verificado", 401, "EMAIL_NOT_VERIFIED");
         }
         const tokens = jwt_1.default.generateTokenPair(user);
         await prisma_1.default.user.update({
@@ -98,7 +98,7 @@ class AuthService {
                 expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
             },
         });
-        logger_1.logger.info(`🔐 Login realizado: ${user.email}`);
+        logger_1.default.info(`🔐 Login realizado: ${user.email}`);
         return {
             user: {
                 id: user.id,
@@ -141,7 +141,7 @@ class AuthService {
             where: { id: verificationToken.id },
             data: { used: true },
         });
-        logger_1.logger.info(`✅ Email verificado: ${user.email}`);
+        logger_1.default.info(`✅ Email verificado: ${user.email}`);
         return { user };
     }
     async resendVerification(email) {
@@ -171,7 +171,7 @@ class AuthService {
             },
         });
         const emailSent = await email_1.default.sendVerificationEmail(user.email, user.name, verificationToken);
-        logger_1.logger.info(`📧 Email de verificação reenviado: ${user.email}`);
+        logger_1.default.info(`📧 Email de verificação reenviado: ${user.email}`);
         return { emailSent };
     }
     async forgotPassword(email) {
@@ -198,7 +198,7 @@ class AuthService {
             },
         });
         const emailSent = await email_1.default.sendPasswordResetEmail(user.email, user.name, resetToken);
-        logger_1.logger.info(`🔑 Solicitação de recuperação de senha: ${user.email}`);
+        logger_1.default.info(`🔑 Solicitação de recuperação de senha: ${user.email}`);
         return { emailSent };
     }
     async resetPassword(token, newPassword) {
@@ -228,7 +228,7 @@ class AuthService {
             where: { userId: resetToken.userId },
             data: { isActive: false },
         });
-        logger_1.logger.info(`🔑 Senha redefinida: ${resetToken.user.email}`);
+        logger_1.default.info(`🔑 Senha redefinida: ${resetToken.user.email}`);
         return { success: true };
     }
     async refreshToken(refreshToken) {
@@ -240,7 +240,7 @@ class AuthService {
             throw (0, errorHandler_1.createError)('Refresh token inválido ou expirado', 401, 'INVALID_REFRESH_TOKEN');
         }
         const accessToken = jwt_1.default.refreshAccessToken(refreshToken);
-        logger_1.logger.info(`🔄 Token renovado: ${session.user.email}`);
+        logger_1.default.info(`🔄 Token renovado: ${session.user.email}`);
         return { accessToken };
     }
     async logout(refreshToken) {
@@ -248,7 +248,7 @@ class AuthService {
             where: { token: refreshToken },
             data: { isActive: false },
         });
-        logger_1.logger.info(`👋 Logout realizado`);
+        logger_1.default.info(`👋 Logout realizado`);
         return { success: true };
     }
 }

@@ -1,0 +1,65 @@
+import { Router } from 'express';
+import { celebrate, Segments } from 'celebrate';
+import AuthController from '../modules/auth/auth.controller';
+import {
+  registerSchema,
+  loginSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  resendVerificationSchema,
+  refreshTokenSchema,
+  logoutSchema,
+} from '../modules/auth/auth.validation';
+
+const router = Router();
+
+// POST /api/auth/register
+router.post(
+  '/register',
+  celebrate({ [Segments.BODY]: registerSchema }),
+  AuthController.register
+);
+
+// POST /api/auth/login
+router.post(
+  '/login',
+  celebrate({ [Segments.BODY]: loginSchema }),
+  AuthController.login
+);
+
+// POST /api/auth/forgot-password
+router.post(
+  '/forgot-password',
+  celebrate({ [Segments.BODY]: forgotPasswordSchema }),
+  AuthController.forgotPassword
+);
+
+// POST /api/auth/reset-password
+router.post(
+  '/reset-password',
+  celebrate({ [Segments.BODY]: resetPasswordSchema }),
+  AuthController.resetPassword
+);
+
+// POST /api/auth/resend-verification
+router.post(
+  '/resend-verification',
+  celebrate({ [Segments.BODY]: resendVerificationSchema }),
+  AuthController.resendVerification
+);
+
+// POST /api/auth/refresh-token
+router.post(
+  '/refresh-token',
+  celebrate({ [Segments.BODY]: refreshTokenSchema }),
+  AuthController.refreshToken
+);
+
+// POST /api/auth/logout
+router.post(
+  '/logout',
+  celebrate({ [Segments.BODY]: logoutSchema }),
+  AuthController.logout
+);
+
+export default router;

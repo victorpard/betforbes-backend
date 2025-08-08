@@ -1,4 +1,3 @@
-
 import Joi from 'joi';
 
 // Pattern que obriga:

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { logger } from '../../utils/logger';
+import logger from '../../utils/logger';
 
 const INFO_URL = process.env.HYPERLIQUID_API_URL || 'https://api.hyperliquid.xyz/info';
 

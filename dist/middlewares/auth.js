@@ -6,7 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.authMiddleware = exports.requireModerator = exports.requireAdmin = exports.requireVerifiedEmail = exports.requireRole = exports.optionalAuth = exports.authenticateToken = void 0;
 const jwt_1 = __importDefault(require("../lib/jwt"));
 const prisma_1 = __importDefault(require("../lib/prisma"));
-const logger_1 = require("../utils/logger");
+const logger_1 = __importDefault(require("../utils/logger"));
 const helpers_1 = require("../utils/helpers");
 const authenticateToken = async (req, res, next) => {
     try {
@@ -57,11 +57,11 @@ const authenticateToken = async (req, res, next) => {
             return;
         }
         req.user = user;
-        logger_1.logger.info(`🔐 Usuário autenticado: ${user.email} (${user.role}) - IP: ${(0, helpers_1.getClientIP)(req)}`);
+        logger_1.default.info(`🔐 Usuário autenticado: ${user.email} (${user.role}) - IP: ${(0, helpers_1.getClientIP)(req)}`);
         next();
     }
     catch (error) {
-        logger_1.logger.error('❌ Erro na autenticação:', error);
+        logger_1.default.error('❌ Erro na autenticação:', error);
         res.status(401).json({
             success: false,
             message: 'Token inválido ou expirado',
@@ -110,7 +110,7 @@ const requireRole = (roles) => {
             return;
         }
         if (!roles.includes(req.user.role)) {
-            logger_1.logger.warn(`🚫 Acesso negado: ${req.user.email} tentou acessar rota que requer ${roles.join(' ou ')}`);
+            logger_1.default.warn(`🚫 Acesso negado: ${req.user.email} tentou acessar rota que requer ${roles.join(' ou ')}`);
             res.status(403).json({
                 success: false,
                 message: 'Acesso negado - permissões insuficientes',

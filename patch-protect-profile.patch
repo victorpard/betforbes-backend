@@ -1,0 +1,7 @@
+*** Begin Patch
+*** Update File: src/routes/auth.ts
+@@
+- router.get('/profile', authController.profile);
++ // Protege /profile com JWT
++ router.get('/profile', authMiddleware, authController.profile);
+*** End Patch

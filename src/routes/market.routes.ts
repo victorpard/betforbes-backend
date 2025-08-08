@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { listAssets, fetchTicker } from '../modules/market/price.service';
-import { logger } from '../utils/logger';
+import logger from '../utils/logger';
 
 const router = Router();
 

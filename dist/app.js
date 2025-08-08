@@ -11,6 +11,14 @@ const errorHandler_1 = require("./middlewares/errorHandler");
 const rateLimiter_1 = require("./middlewares/rateLimiter");
 const routes_1 = __importDefault(require("./routes"));
 const app = (0, express_1.default)();
+app.use("/api/auth/profile", (req, res, next) => {
+    const auth = req.headers["authorization"];
+    if (!auth || !auth.startsWith("Bearer ")) {
+        res.status(401).json({ success: false, code: "UNAUTHORIZED" });
+        return;
+    }
+    next();
+});
 app.use((0, helmet_1.default)());
 app.use((0, cors_1.default)({
     origin: process.env.FRONTEND_URL,

@@ -5,7 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const user_service_1 = __importDefault(require("./user.service"));
 const errorHandler_1 = require("../../middlewares/errorHandler");
-const logger_1 = require("../../utils/logger");
+const logger_1 = __importDefault(require("../../utils/logger"));
 class UserController {
     async getProfile(req, res) {
         try {
@@ -20,7 +20,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao obter perfil:', error);
+            logger_1.default.error('Erro ao obter perfil:', error);
             throw error;
         }
     }
@@ -39,7 +39,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao atualizar perfil:', error);
+            logger_1.default.error('Erro ao atualizar perfil:', error);
             throw error;
         }
     }
@@ -57,7 +57,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao alterar senha:', error);
+            logger_1.default.error('Erro ao alterar senha:', error);
             throw error;
         }
     }
@@ -74,7 +74,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao listar sessões:', error);
+            logger_1.default.error('Erro ao listar sessões:', error);
             throw error;
         }
     }
@@ -95,7 +95,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao revogar sessão:', error);
+            logger_1.default.error('Erro ao revogar sessão:', error);
             throw error;
         }
     }
@@ -114,7 +114,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao revogar todas as sessões:', error);
+            logger_1.default.error('Erro ao revogar todas as sessões:', error);
             throw error;
         }
     }
@@ -135,7 +135,7 @@ class UserController {
             });
         }
         catch (error) {
-            logger_1.logger.error('Erro ao excluir conta:', error);
+            logger_1.default.error('Erro ao excluir conta:', error);
             throw error;
         }
     }

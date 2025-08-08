@@ -1,10 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createError = exports.asyncHandler = exports.notFoundHandler = exports.errorHandler = void 0;
-const logger_1 = require("../utils/logger");
+const logger_1 = __importDefault(require("../utils/logger"));
 const helpers_1 = require("../utils/helpers");
 const errorHandler = (error, req, res, next) => {
-    logger_1.logger.error('❌ Erro na aplicação:', {
+    logger_1.default.error('❌ Erro na aplicação:', {
         error: error.message,
         stack: error.stack,
         url: req.url,

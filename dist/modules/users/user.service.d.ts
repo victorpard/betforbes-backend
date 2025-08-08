@@ -6,9 +6,10 @@ export interface UpdateProfileData {
 declare class UserService {
     getProfile(userId: string): Promise<{
         balance: number;
-        name: string;
         id: string;
         email: string;
+        referralCode: string | null;
+        name: string;
         isVerified: boolean;
         isActive: boolean;
         role: import(".prisma/client").$Enums.Role;
@@ -18,13 +19,13 @@ declare class UserService {
         createdAt: Date;
         updatedAt: Date;
         lastLoginAt: Date | null;
-        referralCode: string | null;
     }>;
     updateProfile(userId: string, updateData: UpdateProfileData): Promise<{
         balance: number;
-        name: string;
         id: string;
         email: string;
+        referralCode: string | null;
+        name: string;
         isVerified: boolean;
         isActive: boolean;
         role: import(".prisma/client").$Enums.Role;
@@ -34,7 +35,6 @@ declare class UserService {
         createdAt: Date;
         updatedAt: Date;
         lastLoginAt: Date | null;
-        referralCode: string | null;
     }>;
     changePassword(userId: string, currentPassword: string, newPassword: string): Promise<{
         success: boolean;
@@ -74,9 +74,10 @@ declare class UserService {
             name: string;
             email: string;
         } | null;
-        name: string;
         id: string;
         email: string;
+        referralCode: string | null;
+        name: string;
         isVerified: boolean;
         isActive: boolean;
         role: import(".prisma/client").$Enums.Role;
@@ -86,10 +87,9 @@ declare class UserService {
         createdAt: Date;
         updatedAt: Date;
         lastLoginAt: Date | null;
-        referralCode: string | null;
         referrer: {
-            name: string;
             email: string;
+            name: string;
         } | null;
     }>;
 }

@@ -3,7 +3,7 @@ import jwtService from '../../lib/jwt';
 import emailService from '../../utils/email';
 import { hashPassword, verifyPassword, generateSecureToken, getExpirationDate } from '../../utils/helpers';
 import { createError } from '../../middlewares/errorHandler';
-import { logger } from '../../utils/logger';
+import logger from '../../utils/logger';
 
 export interface RegisterData {
   name: string;
@@ -147,7 +147,7 @@ class AuthService {
 
     // Verificar se email foi verificado
     if (!user.isVerified) {
-      throw createError('Email não verificado', 401, 'EMAIL_NOT_VERIFIED');
+      throw createError("Email não verificado", 401, "EMAIL_NOT_VERIFIED");
     }
 
     // Gerar tokens
@@ -412,4 +412,3 @@ class AuthService {
 }
 
 export default new AuthService();
-
