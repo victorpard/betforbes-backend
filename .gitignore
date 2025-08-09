@@ -1,15 +1,23 @@
+# Node
 node_modules/
 dist/
+coverage/
+
+# Repositórios acidentais
+repo.git/
+repo-clean.git/
+
+# Logs & lockfiles
 npm-debug.log*
 pnpm-lock.yaml
 yarn.lock
-.DS_Store
+*.log
 
-# Env & logs
+# Env & SO
 .env
 .env.local
 .env.*.local
-*.log
+.DS_Store
 
 # PM2 / misc
 .pids
