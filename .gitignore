@@ -1,22 +1,15 @@
 node_modules/
-logs/
+dist/
+npm-debug.log*
+pnpm-lock.yaml
+yarn.lock
+.DS_Store
+
+# Env & logs
 .env
+.env.local
+.env.*.local
 *.log
-.cache/
-.ssh/
-*.dump
-*.zip
-.github/fluxos de trabalho/
-/frontend/dist/
-.env
-.npm/
-.npm/_cacache/
 
-# Build e deps
-/dist
-/node_modules
-
-# Backups internos
-/repo.git
-/repo-clean.git
-coverage/
+# PM2 / misc
+.pids

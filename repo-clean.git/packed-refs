@@ -1,0 +1,7 @@
+# pack-refs with: peeled fully-peeled sorted 
+242a95ec6e83ae3e0743a2603ce545cef402e267 refs/heads/affiliate-integration
+fb74773194ba4249712c714e3c3e2dc411fbb380 refs/heads/main
+c36e2219f13fe8be1e5fe7d852c03d91215d7598 refs/heads/stable-deploy
+30a96ab483f1ce2e8ee6d87531153d54c8900e85 refs/heads/stable-snapshot-20250804_1718
+fb74773194ba4249712c714e3c3e2dc411fbb380 refs/tags/pre-clean-20250804_1810
+30a96ab483f1ce2e8ee6d87531153d54c8900e85 refs/tags/stable-snapshot-post-clean-20250804_1752

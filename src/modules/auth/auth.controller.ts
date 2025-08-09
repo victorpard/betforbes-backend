@@ -1,9 +1,11 @@
-import prisma from '../../lib/prisma';
 import { Request, Response, Router } from 'express';
+import * as jwt from 'jsonwebtoken';
+
 import authService from './auth.service';
 import { asyncHandler } from '../../middlewares/errorHandler';
 import logger from '../../utils/logger';
 import { getClientIP } from '../../utils/helpers';
+
 import {
   registerSchema,
   loginSchema,
@@ -13,174 +15,290 @@ import {
   refreshTokenSchema,
   logoutSchema,
 } from './auth.validation';
-import { authenticateToken } from '../../middlewares/auth';
 
 const router = Router();
 
+type JwtPayload = {
+  userId: string;
+  email: string;
+  role?: string;
+  iat?: number;
+  exp?: number;
+};
+
+function getBearerToken(req: Request): string | null {
+  const h = req.headers.authorization || '';
+  if (!h || !h.toLowerCase().startsWith('bearer ')) return null;
+  return h.slice(7).trim();
+}
+
+function requireSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    logger.error('JWT_SECRET não configurado nas variáveis de ambiente.');
+    throw new Error('JWT_SECRET ausente');
+  }
+  return secret;
+}
+
+function signJwt(payload: object, envKey: 'JWT_EXPIRES_IN' | 'JWT_REFRESH_EXPIRES_IN', fallback: string): string {
+  const secret = requireSecret();
+  const expiresIn = process.env[envKey] ?? fallback; // garante string (nunca undefined)
+  // Força a sobrecarga correta do jsonwebtoken
+  return (jwt as any).sign(payload, secret, { expiresIn });
+}
+
+function signAccessToken(payload: { userId: string; email: string; role?: string }): string {
+  return signJwt(payload, 'JWT_EXPIRES_IN', '7d');
+}
+
+function signRefreshToken(payload: { userId: string; email: string; role?: string }): string {
+  return signJwt(payload, 'JWT_REFRESH_EXPIRES_IN', '30d');
+}
+
+/**
+ * POST /api/auth/register
+ */
 router.post(
   '/register',
   asyncHandler(async (req: Request, res: Response) => {
-    // validação
-    // Auto-preenchimento para não quebrar validação
-    req.body.confirmPassword = req.body.password;
-
     const { error: vErr } = registerSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { name, email, password, referralCode } = req.body;
-    logger.info(`📝 Iniciando registro: ${email} - IP: ${getClientIP(req)}`);
+    const ipAddress = getClientIP(req);
 
-    const { user, emailSent } = await authService.register({ name, email, password, referralCode });
+    const result: any = await authService.register({ name, email, password, referralCode });
+    logger.info(`📝 Registro criado para ${email} (IP ${ipAddress})`);
 
-    logger.info(`✅ Registro concluído: ${email} - IP: ${getClientIP(req)}`);
     return res.status(201).json({
       success: true,
-      message: 'Usuário criado com sucesso. Verifique seu email para ativar a conta.',
-      data: { user, emailSent },
+      message: 'Conta criada. Verifique seu e-mail para confirmar.',
+      ...result,
     });
-  }),
+  })
 );
 
+/**
+ * POST /api/auth/login
+ */
 router.post(
   '/login',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = loginSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { email, password } = req.body;
-    logger.info(`🔐 Tentativa de login: ${email} - IP: ${getClientIP(req)}`);
+    const ipAddress = getClientIP(req);
 
-    const { user, tokens } = await authService.login({ email, password });
+    const loginRes: any = await authService.login({ email, password });
 
-    logger.info(`🔓 Login realizado: ${email} - IP: ${getClientIP(req)}`);
-    return res.json({ success: true, message: 'Login realizado com sucesso', data: { user, tokens } });
-  }),
-);
+    // normaliza campos vindos do service
+    let accessToken: string | null =
+      loginRes?.accessToken ?? loginRes?.token ?? loginRes?.jwt ?? null;
 
-router.get(
-  '/verify-email',
-  asyncHandler(async (req: Request, res: Response) => {
-    const token = String(req.query.token || '');
-    if (!token) {
-      return res.status(400).json({ success: false, message: 'Token de verificação é obrigatório' });
+    let refreshToken: string | null =
+      loginRes?.refreshToken ?? loginRes?.rt ?? null;
+
+    const user =
+      loginRes?.user ?? loginRes?.profile ?? loginRes?.data?.user ?? null;
+
+    if (!user || !user.id || !user.email) {
+      return res.status(500).json({ success: false, message: 'Resposta de login inválida: usuário ausente.' });
     }
 
-    logger.info(`📧 Verificando email com token: ${token} - IP: ${getClientIP(req)}`);
-    const { user } = await authService.verifyEmail(token);
-    logger.info(`✅ Email verificado: ${user.email} - IP: ${getClientIP(req)}`);
-    return res.json({ success: true, message: 'Email verificado com sucesso!', data: { user } });
-  }),
+    // payload sem role undefined
+    const payload: { userId: string; email: string; role?: string } = {
+      userId: user.id,
+      email: user.email,
+    };
+    if (user.role) payload.role = user.role;
+
+    // se o service não gerou tokens, gera aqui
+    try {
+      if (!accessToken) accessToken = signAccessToken(payload);
+      if (!refreshToken) refreshToken = signRefreshToken(payload);
+    } catch {
+      return res.status(500).json({ success: false, message: 'Falha ao gerar token. Verifique JWT_SECRET.' });
+    }
+
+    logger.info(`🔐 Login de ${email} (IP ${ipAddress})`);
+
+    return res.json({
+      success: true,
+      token: accessToken,      // compat com frontend
+      accessToken,
+      refreshToken,
+      user,
+    });
+  })
 );
 
+/**
+ * POST /api/auth/verify-email
+ * body: { token }
+ */
+router.post(
+  '/verify-email',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { token } = req.body || {};
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Token de verificação ausente.' });
+    }
+    await authService.verifyEmail(token);
+    return res.json({ success: true, message: 'E-mail verificado com sucesso.' });
+  })
+);
+
+/**
+ * POST /api/auth/resend-verification
+ * body: { email }
+ */
 router.post(
   '/resend-verification',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = resendVerificationSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { email } = req.body;
-    logger.info(`📧 Reenvio de verificação: ${email} - IP: ${getClientIP(req)}`);
-    const { emailSent } = await authService.resendVerification(email);
-    return res.json({
-      success: true,
-      message: 'Email de verificação reenviado. Verifique sua caixa de entrada.',
-      data: { emailSent },
-    });
-  }),
+    await authService.resendVerification(email);
+    return res.json({ success: true, message: 'E-mail de verificação reenviado.' });
+  })
 );
 
+/**
+ * POST /api/auth/forgot-password
+ * body: { email }
+ */
 router.post(
   '/forgot-password',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = forgotPasswordSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { email } = req.body;
-    logger.info(`🔑 Recuperação de senha solicitada: ${email} - IP: ${getClientIP(req)}`);
-    const { emailSent } = await authService.forgotPassword(email);
-    return res.json({
-      success: true,
-      message: 'Se o email existir, você receberá instruções para redefinir sua senha.',
-      data: { emailSent },
-    });
-  }),
+    await authService.forgotPassword(email);
+    return res.json({ success: true, message: 'Se o e-mail existir, enviaremos instruções.' });
+  })
 );
 
+/**
+ * POST /api/auth/reset-password
+ * body: { token, password }
+ */
 router.post(
   '/reset-password',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = resetPasswordSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { token, password } = req.body;
-    logger.info(`🔑 Reset de senha token: ${token} - IP: ${getClientIP(req)}`);
     await authService.resetPassword(token, password);
-    logger.info(`✅ Senha redefinida - IP: ${getClientIP(req)}`);
-    return res.json({ success: true, message: 'Senha redefinida com sucesso. Faça login novamente.' });
-  }),
+    return res.json({ success: true, message: 'Senha redefinida com sucesso.' });
+  })
 );
 
+/**
+ * POST /api/auth/refresh
+ * body: { refreshToken }
+ */
 router.post(
-  '/refresh-token',
+  '/refresh',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = refreshTokenSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { refreshToken } = req.body;
-    logger.info(`🔄 Renovando token - IP: ${getClientIP(req)}`);
-    const { accessToken } = await authService.refreshToken(refreshToken);
-    return res.json({ success: true, message: 'Token renovado com sucesso', data: { accessToken } });
-  }),
+
+    // tenta via service
+    const r: any = await authService.refreshToken(refreshToken);
+    let newAccessToken: string | null = r?.accessToken ?? r?.token ?? r?.jwt ?? null;
+
+    // fallback: se o service não retornar, valida o RT e reemite
+    if (!newAccessToken) {
+      const secret = requireSecret();
+      try {
+        const decoded = (jwt as any).verify(refreshToken, secret) as JwtPayload;
+        const payload: { userId: string; email: string; role?: string } = {
+          userId: decoded.userId,
+          email: decoded.email,
+        };
+        if (decoded.role) payload.role = decoded.role;
+        newAccessToken = signAccessToken(payload);
+      } catch {
+        return res.status(401).json({ success: false, message: 'Refresh token inválido ou expirado.' });
+      }
+    }
+
+    return res.json({ success: true, token: newAccessToken, accessToken: newAccessToken });
+  })
 );
 
+/**
+ * POST /api/auth/logout
+ * body: { refreshToken }
+ */
 router.post(
   '/logout',
   asyncHandler(async (req: Request, res: Response) => {
     const { error: vErr } = logoutSchema.validate(req.body, { abortEarly: false });
     if (vErr) {
-      const msg = vErr.details.map(d => d.message).join(' ');
-      return res.status(400).json({ success: false, message: msg });
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
     }
 
     const { refreshToken } = req.body;
-    logger.info(`👋 Logout solicitado - IP: ${getClientIP(req)}`);
     await authService.logout(refreshToken);
-    return res.json({ success: true, message: 'Logout realizado com sucesso' });
-  }),
+    return res.json({ success: true, message: 'Logout efetuado.' });
+  })
 );
 
+/**
+ * ✅ GET /api/auth/validate
+ * Valida o JWT (Authorization: Bearer <token>) e retorna dados básicos.
+ */
 router.get(
-  '/validate-token',
+  '/validate',
   asyncHandler(async (req: Request, res: Response) => {
-    const user = (req as any).user;
-    return res.json({ success: true, message: 'Token válido', data: { user } });
-  }),
-);
+    const token = getBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Token ausente.' });
+    }
 
-router.get(
-  '/profile',
-  asyncHandler(async (req: Request, res: Response) => {
-    const user = (req as any).user;
-    return res.json({ success: true, message: 'Perfil obtido com sucesso', data: { user } });
-  }),
+    const secret = requireSecret();
+
+    try {
+      const decoded = (jwt as any).verify(token, secret) as JwtPayload;
+      return res.json({
+        success: true,
+        user: {
+          id: decoded.userId,
+          email: decoded.email,
+          role: decoded.role ?? 'USER',
+        },
+      });
+    } catch {
+      return res.status(401).json({ success: false, message: 'Token inválido ou expirado.' });
+    }
+  })
 );
 
 export default router;
