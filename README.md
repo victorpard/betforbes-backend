@@ -293,3 +293,6 @@ MIT License - veja arquivo LICENSE para detalhes.
 
 **🎯 BetForbes Backend - Desenvolvido com ❤️ pela equipe BetForbes**
 
+
+## Ops agent check
+Placeholder de validação do agente.
