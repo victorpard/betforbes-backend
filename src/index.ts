@@ -1,39 +1,8 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import swaggerJsdoc from 'swagger-jsdoc';
-import swaggerUi from 'swagger-ui-express';
-import { errorHandler } from './middlewares/errorHandler';
-import { rateLimiter } from './middlewares/rateLimiter';
-import { authenticateToken } from './middlewares/auth';
-import routes from './routes';
+import app from './app';
 import logger from './utils/logger';
-import prisma from './lib/prisma';
 
-const app = express();
-const PORT = parseInt(process.env.PORT|| '3001', 10);
+const port = Number(process.env.PORT) || 3001;
 
-app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL, credentials: true }));
-app.use(express.json());
-app.use(rateLimiter);
-
-// Swagger setup (mesmo código anterior)
-// ...
-
-// Monta todas rotas em /api
-app.use('/api', routes);
-
-// 404
-app.use('*', (req, res) => res.status(404).json({ success: false, message: `Rota não encontrada: ${req.originalUrl}` }));
-
-// Erros
-app.use(errorHandler);
-
-async function start() {
-  await prisma.$connect();
-  logger.info('DB Connected');
-  app.listen(PORT, () => logger.info(`Server on port ${PORT}`));
-}
-start();
+app.listen(port, () => {
+  logger?.info ? logger.info(`Server on port ${port}`) : console.log(`Server on port ${port}`);
+});
