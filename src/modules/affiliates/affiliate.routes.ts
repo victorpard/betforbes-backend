@@ -1,3 +1,4 @@
+import { microcache } from '../../middlewares/microcache';
 import { Router } from 'express';
 import affiliateController from './affiliate.controller';
 import { authMiddleware } from '../../middlewares/auth';
@@ -143,7 +144,11 @@ router.get('/me', authMiddleware, affiliateController.getReferralLink);
  *                 data:
  *                   $ref: '#/components/schemas/AffiliateStats'
  */
-router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
+
+   router.get('/stats', authMiddleware, microcache({ ttlMs: Number(process.env.AFFILIATE_STATS_MICROCACHE_MS ?? '3000'), key: (req) => {
+     const uid = (req as any).user?.id ?? `anon:`;
+     return `affiliate:stats:`;
+   }}), affiliateController.getAffiliateStats);
 
 /**
  * @swagger

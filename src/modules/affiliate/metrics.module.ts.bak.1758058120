@@ -1,0 +1,274 @@
+// src/modules/affiliate/metrics.module.ts
+import { Router, Request, Response } from 'express';
+import { PrismaClient, Prisma } from '@prisma/client';
+
+export const affiliateMetricsRouter = Router();
+const prisma = new PrismaClient();
+
+/* =========================
+   HELPERS DE AUTH E PARÂMETROS
+   ========================= */
+
+function base64UrlToUtf8(jsonPart: string): string {
+  const s = jsonPart.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = s.length % 4 === 2 ? '==' : s.length % 4 === 3 ? '=' : '';
+  return Buffer.from(s + pad, 'base64').toString('utf8');
+}
+
+function extractUserIdLoose(req: Request, res: Response): string | null {
+  const a: any = req as any;
+  const l: any = (res as any)?.locals;
+
+  const fromKnown =
+    a.user?.id ||
+    a.user?.userId ||
+    a.userId ||
+    a.auth?.id ||
+    a.auth?.userId ||
+    l?.user?.id ||
+    l?.user?.userId ||
+    l?.auth?.id ||
+    l?.auth?.userId ||
+    null;
+
+  if (fromKnown) return String(fromKnown);
+
+  const auth = (req.get('authorization') || req.get('Authorization') || '').trim();
+  const m = auth.match(/^Bearer\s+([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
+  if (!m) return null;
+
+  try {
+    const [, token] = m;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(base64UrlToUtf8(parts[1]));
+    return payload.userId || payload.sub || payload.id || null;
+  } catch {
+    return null;
+  }
+}
+
+const ALLOWED_RANGES = new Set(['7d', '30d', '90d']);
+function parseRangeDays(rangeParam: string | undefined): number {
+  const v = (rangeParam || '30d').toLowerCase();
+  if (!ALLOWED_RANGES.has(v)) return 30;
+  return parseInt(v, 10);
+}
+
+function parseTimezone(tzParam: string | undefined): string {
+  const fallback = 'America/Sao_Paulo';
+  if (!tzParam) return fallback;
+  const tz = tzParam.trim();
+  if (/^[A-Za-z_]+\/[A-Za-z_\-]+$/.test(tz)) return tz;
+  if (tz.toUpperCase() === 'UTC') return 'UTC';
+  return fallback;
+}
+
+/* =========================
+   DETECÇÃO DE ESQUEMA
+   ========================= */
+
+async function tableExists(tableName: string): Promise<boolean> {
+  const [schema, table] = tableName.includes('.') ? tableName.split('.') : ['public', tableName];
+  const r = await prisma.$queryRaw<{ exists: boolean }[]>`
+    SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                   WHERE n.nspname = ${schema} AND c.relname = ${table}) AS "exists"
+  `;
+  return r?.[0]?.exists === true;
+}
+
+async function columnExists(tableName: string, columnName: string): Promise<boolean> {
+  const [schema, table] = tableName.includes('.') ? tableName.split('.') : ['public', tableName];
+  const r = await prisma.$queryRaw<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = ${schema}
+        AND table_name   = ${table}
+        AND column_name  = ${columnName}
+    ) AS "exists"
+  `;
+  return r?.[0]?.exists === true;
+}
+
+// Descobrir colunas reais de users e orders que nos interessam
+async function detectUsersCols() {
+  const hasReferredBy    = await columnExists('users', 'referredBy');
+  const hasReferredById  = await columnExists('users', 'referredById');
+  const hasReferred_by   = await columnExists('users', 'referred_by');
+  const hasReferred_by_id= await columnExists('users', 'referred_by_id');
+  const referredCol =
+    (hasReferredBy && 'referredBy') ||
+    (hasReferredById && 'referredById') ||
+    (hasReferred_by && 'referred_by') ||
+    (hasReferred_by_id && 'referred_by_id') ||
+    null;
+
+  const hasUserId  = await columnExists('users', 'id');
+  const userIdCol  = hasUserId ? 'id' : null;
+
+  return { referredCol, userIdCol };
+}
+
+async function detectOrdersCols() {
+  if (!(await tableExists('orders'))) return null;
+
+  const createdAt =
+    (await columnExists('orders', 'createdAt')) ? 'createdAt' :
+    (await columnExists('orders', 'created_at')) ? 'created_at' : null;
+
+  const userCol =
+    (await columnExists('orders', 'userId')) ? 'userId' :
+    (await columnExists('orders', 'user_id')) ? 'user_id' : null;
+
+  // volume/amount (opcional – se não existir, só contamos pedidos)
+  const amountCol =
+    (await columnExists('orders', 'amount')) ? 'amount' :
+    (await columnExists('orders', 'volume_usdt')) ? 'volume_usdt' :
+    (await columnExists('orders', 'stake')) ? 'stake' : null;
+
+  return { createdAt, userCol, amountCol };
+}
+
+/* =========================
+   AGREGAÇÕES
+   ========================= */
+
+async function fetchReferredUserIds(affiliateId: string): Promise<string[]> {
+  if (!(await tableExists('users'))) return [];
+  const { referredCol, userIdCol } = await detectUsersCols();
+  if (!referredCol || !userIdCol) return [];
+
+  // u."referredBy" = $affiliateId
+  const rc = Prisma.raw(`"${referredCol}"`);
+  const uid = Prisma.raw(`"${userIdCol}"`);
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT u.${uid} AS id
+    FROM "users" u
+    WHERE u.${rc} = ${affiliateId}
+  `;
+  return rows.map(r => String(r.id));
+}
+
+type OrdersAgg = { orders: number; volume_usdt: number };
+async function aggregateOrdersForUsers(userIds: string[], days: number): Promise<OrdersAgg> {
+  const cols = await detectOrdersCols();
+  if (!cols || !cols.userCol || !cols.createdAt) return { orders: 0, volume_usdt: 0 };
+  if (userIds.length === 0) return { orders: 0, volume_usdt: 0 };
+
+  const userCol    = Prisma.raw(`"${cols.userCol}"`);
+  const createdCol = Prisma.raw(`"${cols.createdAt}"`);
+
+  // IN seguro com valores parametrizados
+  const inList = Prisma.join(userIds.map(id => Prisma.sql`${id}`));
+
+  // Se não houver coluna de montante, só contar pedidos
+  if (!cols.amountCol) {
+    const r = await prisma.$queryRaw<{ orders: number }[]>`
+      SELECT COUNT(*)::int AS orders
+      FROM "orders" o
+      WHERE o.${userCol} IN (${inList})
+        AND o.${createdCol} >= now() - make_interval(days => ${days})
+    `;
+    return { orders: Number(r?.[0]?.orders ?? 0), volume_usdt: 0 };
+  }
+
+  const amountCol = Prisma.raw(`"${cols.amountCol}"`);
+  const r = await prisma.$queryRaw<{ orders: number; volume_usdt: number | null }[]>`
+    SELECT COUNT(*)::int AS orders,
+           COALESCE(SUM(o.${amountCol}), 0) AS volume_usdt
+    FROM "orders" o
+    WHERE o.${userCol} IN (${inList})
+      AND o.${createdCol} >= now() - make_interval(days => ${days})
+  `;
+  return {
+    orders: Number(r?.[0]?.orders ?? 0),
+    volume_usdt: Number(r?.[0]?.volume_usdt ?? 0),
+  };
+}
+
+async function withdrawalsAvailable(): Promise<boolean> {
+  return tableExists('withdrawals');
+}
+
+/* =========================
+   ROTA
+   ========================= */
+
+affiliateMetricsRouter.get('/metrics/summary', async (req: Request, res: Response) => {
+  const notes: string[] = [];
+  try {
+    const userId = extractUserIdLoose(req, res);
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const days = parseRangeDays(String(req.query.range));
+    const tz = parseTimezone(String(req.query.tz));
+
+    // 1) referrals
+    let referralsCount = 0;
+    let referredUserIds: string[] = [];
+    try {
+      referredUserIds = await fetchReferredUserIds(userId);
+      referralsCount = referredUserIds.length;
+    } catch (e: any) {
+      notes.push(`referrals_failed: ${e?.message || String(e)}`);
+    }
+
+    // 2) orders (para usuários indicados)
+    let orders = 0;
+    let volume_usdt = 0;
+    try {
+      const agg = await aggregateOrdersForUsers(referredUserIds, days);
+      orders = agg.orders;
+      volume_usdt = agg.volume_usdt;
+    } catch (e: any) {
+      notes.push(`orders_agg_failed: ${e?.message || String(e)}`);
+    }
+
+    // 3) lucros da casa e saques
+    // Como não há colunas de PnL/fee mapeadas, devolvemos 0 e sinalizamos se faltam tabelas
+    const hasWithdrawals = await withdrawalsAvailable();
+    if (!hasWithdrawals) {
+      notes.push('withdrawals: tabela ausente');
+    }
+    const withdraw_amount_total_usdt = 0;
+    const withdraw_fee_house_usdt = 0;
+
+    // 4) regra de negócio (placeholders, já que não há PnL no schema atual):
+    // - Lucro da casa sobre ordens (5% do lucro das ordens) → sem PnL: 0
+    const house_profit_orders_usdt = 0;
+
+    // - Saque 2% para a casa → sem fee/tabela: 0
+    // - Afiliado gera 5% para o pai → sem ledger: 0
+    const affiliate_commission_due_usdt = 0;
+    const commissions_paid_usdt = 0;
+
+    const house_profit_usdt = house_profit_orders_usdt; // compat
+    const house_profit_total_usdt =
+      house_profit_orders_usdt + withdraw_fee_house_usdt;
+
+    return res.json({
+      version: 'v2',
+      range: `${days}d`,
+      timezone: tz,
+      summary: {
+        referrals: referralsCount,
+        orders,
+        volume_usdt,
+        house_profit_usdt,
+        house_profit_orders_usdt,
+        withdraw_amount_total_usdt,
+        withdraw_fee_house_usdt,
+        house_profit_total_usdt,
+        affiliate_commission_due_usdt,
+        commissions_paid_usdt,
+      },
+      note: notes.length ? notes.join(' | ') : undefined,
+    });
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ error: 'Internal Server Error', code: 'AFFILIATE_METRICS_SUMMARY_FAILED' });
+  }
+});

@@ -1,3 +1,4 @@
+import opsRouter from './routes/ops.route';
 import app from './app';
 import logger from './utils/logger';
 
