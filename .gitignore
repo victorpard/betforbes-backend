@@ -1,18 +1,15 @@
-# dependências e builds
 node_modules/
 dist/
+build/
 coverage/
-
-# configs/segredos
 .env
-
-# artefatos locais
+.env.*
 *.log
 npm-debug.log*
-pnpm-lock.yaml
-yarn.lock
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 .DS_Store
-bfg.jar
-repo.git/
-repo-clean.git/
-logs/
+.idea/
+.vscode/
+prisma/*.db

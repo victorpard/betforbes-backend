@@ -94,7 +94,7 @@ class AffiliateService {
 
     const baseUrl = getPublicBaseUrl();
     // Usa /register (rota válida no app)
-    const referralLink = `${baseUrl}/cadastro?ref=${referralCode}`;
+    const referralLink = `${baseUrl}/r/${referralCode}`;
 
     return { referralLink, referralCode };
   }
@@ -116,7 +116,7 @@ class AffiliateService {
     const totalEarnings = activeReferrals * earningsPerReferral;
 
     const baseUrl = getPublicBaseUrl();
-    const referralLink = `${baseUrl}/cadastro?ref=${referralCode}`;
+    const referralLink = `${baseUrl}/r/${referralCode}`;
 
     return {
       totalReferrals,

@@ -1,0 +1,193 @@
+import { Router, Request, Response } from "express";
+import { PrismaClient } from "@prisma/client";
+
+const FEE_ORDER_CREATE = 0.02;
+const FEE_ORDER_PROFIT = 0.05; // TODO: ativar quando houver origem de PnL
+const FEE_WITHDRAW = 0.02;
+const AFF_PARENT_CUT = 0.05;
+
+export const affiliateMetricsRouter = Router();
+
+type Range = "30d" | "90d" | "365d";
+function windowFor(range: Range, now = new Date()) {
+  const end = now;
+  const start = new Date(end);
+  if (range === "30d") start.setDate(start.getDate() - 30);
+  else if (range === "90d") start.setDate(start.getDate() - 90);
+  else start.setDate(start.getDate() - 365);
+  return { start, end };
+}
+const r2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
+const n = (x: any) => (Number.isFinite(Number(x)) ? Number(x) : 0);
+
+/** Usa Prisma normal; se o modelo não casar com as tabelas reais, cai em fallback SQL bruto. */
+async function loadMetrics(prisma: PrismaClient, start: Date, end: Date) {
+  try {
+    // TENTA com Prisma (se houver models mapeados corretamente)
+    const users = await prisma.user.findMany({
+      where: { createdAt: { gte: start, lt: end } },
+      select: { id: true, referredBy: true },
+    });
+
+    // Se este findMany falhar com P2021, vamos direto ao catch/fallback
+    const orders: any[] = await (prisma as any).order.findMany({
+      where: { createdAt: { gte: start, lt: end } },
+      select: { id: true, userId: true, amount: true, createdAt: true },
+    });
+
+    const withdrawals: any[] = await (prisma as any).withdrawal?.findMany?.({
+      where: { createdAt: { gte: start, lt: end } },
+      select: { amount: true, createdAt: true },
+    }).catch(() => []) || [];
+
+    const commissionPayments: any[] = await (prisma as any).affiliateCommissionPayment?.findMany?.({
+      where: { createdAt: { gte: start, lt: end } },
+      select: { amount: true },
+    }).catch(() => []) || [];
+
+    // Cálculo em memória
+    const referrals = users.filter(u => !!(u as any).referredBy).length;
+    let volume = 0, feeCreate = 0, feeClose = 0;
+    const houseFromAffiliateChild: Record<string, number> = {};
+    for (const o of orders) {
+      const amt = n(o.amount);
+      volume += amt;
+      const fCreate = amt * FEE_ORDER_CREATE;
+      const fClose = 0; // TODO: somar 5% do lucro (>0) quando existir fonte de PnL
+      feeCreate += fCreate; feeClose += fClose;
+      const houseThis = fCreate + fClose;
+      const u = users.find(u => (u as any).id === o.userId) as any;
+      if (u?.referredBy) houseFromAffiliateChild[o.userId] = (houseFromAffiliateChild[o.userId] ?? 0) + houseThis;
+    }
+    const house_profit_orders_usdt = feeCreate + feeClose;
+
+    let withdraw_amount_total_usdt = 0;
+    for (const w of withdrawals) withdraw_amount_total_usdt += n(w.amount);
+    const withdraw_fee_house_usdt = withdraw_amount_total_usdt * FEE_WITHDRAW;
+
+    const house_profit_total_usdt = house_profit_orders_usdt + withdraw_fee_house_usdt;
+
+    let affiliate_commission_due_usdt = 0;
+    for (const k of Object.keys(houseFromAffiliateChild)) {
+      const base = houseFromAffiliateChild[k];
+      if (base > 0) affiliate_commission_due_usdt += base * AFF_PARENT_CUT;
+    }
+    const commissions_paid_usdt = commissionPayments.reduce((a, p) => a + n(p.amount), 0);
+
+    return {
+      referrals,
+      orders: orders.length,
+      volume_usdt: r2(volume),
+      house_profit_usdt: r2(house_profit_orders_usdt),
+      house_profit_orders_usdt: r2(house_profit_orders_usdt),
+      withdraw_amount_total_usdt: r2(withdraw_amount_total_usdt),
+      withdraw_fee_house_usdt: r2(withdraw_fee_house_usdt),
+      house_profit_total_usdt: r2(house_profit_total_usdt),
+      affiliate_commission_due_usdt: r2(affiliate_commission_due_usdt),
+      commissions_paid_usdt: r2(commissions_paid_usdt),
+    };
+  } catch (e: any) {
+    // Fallback SQL: usa as tabelas reais (public.users, public.orders, public.withdrawals)
+    // Tenta também aproveitar coluna de PnL se existir (orders.pnl, orders.profit, etc.)
+    const startISO = start.toISOString();
+    const endISO = end.toISOString();
+
+    // 1) referrals (users com referred_by não-nulo no período)
+    const refRow: any = await prisma.$queryRawUnsafe(
+      `select count(*)::bigint as c
+         from public.users u
+        where u.created_at >= $1 and u.created_at < $2
+          and u.referred_by is not null`,
+      startISO, endISO
+    ).catch(() => [{ c: 0 }]);
+    const referrals = Number(refRow?.[0]?.c || 0);
+
+    // 2) orders: volume (sum amount) e count
+    const ordRow: any = await prisma.$queryRawUnsafe(
+      `select count(*)::bigint as orders,
+              coalesce(sum(o.amount),0)::numeric as volume,
+              -- tentativa de PnL (ajuste aqui se sua coluna tiver outro nome):
+              coalesce(sum(greatest(coalesce(o.pnl, o.profit, 0),0)),0)::numeric as pnl_pos
+         from public.orders o
+        where o.created_at >= $1 and o.created_at < $2`,
+      startISO, endISO
+    ).catch(() => [{ orders: 0, volume: 0, pnl_pos: 0 }]);
+    const ordersCount = Number(ordRow?.[0]?.orders || 0);
+    const volume = Number(ordRow?.[0]?.volume || 0);
+    const pnlPos = Number(ordRow?.[0]?.pnl_pos || 0);
+
+    // 3) fee de criação + fee de lucro (>0)
+    const feeCreate = volume * FEE_ORDER_CREATE;
+    const feeClose = pnlPos * FEE_ORDER_PROFIT; // se não houver pnl, será 0
+    const house_profit_orders_usdt = feeCreate + feeClose;
+
+    // 4) saques
+    const wdrRow: any = await prisma.$queryRawUnsafe(
+      `select coalesce(sum(w.amount),0)::numeric as amt
+         from public.withdrawals w
+        where w.created_at >= $1 and w.created_at < $2`,
+      startISO, endISO
+    ).catch(() => [{ amt: 0 }]);
+    const withdraw_amount_total_usdt = Number(wdrRow?.[0]?.amt || 0);
+    const withdraw_fee_house_usdt = withdraw_amount_total_usdt * FEE_WITHDRAW;
+
+    const house_profit_total_usdt = house_profit_orders_usdt + withdraw_fee_house_usdt;
+
+    // 5) comissão do pai (5% do lucro da casa gerado por afiliados: 2% criação + 5% lucro>0 das ordens de filhos)
+    const commRow: any = await prisma.$queryRawUnsafe(
+      `select coalesce(sum( (o.amount * $3) + (greatest(coalesce(o.pnl, o.profit,0),0) * $4) ),0)::numeric as base
+         from public.orders o
+         join public.users  u on u.id = o.user_id
+        where o.created_at >= $1 and o.created_at < $2
+          and u.referred_by is not null`,
+      startISO, endISO, FEE_ORDER_CREATE, FEE_ORDER_PROFIT
+    ).catch(() => [{ base: 0 }]);
+    const baseAff = Number(commRow?.[0]?.base || 0);
+    const affiliate_commission_due_usdt = baseAff > 0 ? baseAff * AFF_PARENT_CUT : 0;
+
+    // 6) pagamentos já feitos (se existir tabela)
+    let commissions_paid_usdt = 0;
+    try {
+      const paidRows: any = await prisma.$queryRawUnsafe(
+        `select coalesce(sum(p.amount),0)::numeric as amt
+           from public.affiliate_commission_payment p
+          where p.created_at >= $1 and p.created_at < $2`,
+        startISO, endISO
+      );
+      commissions_paid_usdt = Number(paidRows?.[0]?.amt || 0);
+    } catch { commissions_paid_usdt = 0; }
+
+    return {
+      referrals,
+      orders: ordersCount,
+      volume_usdt: r2(volume),
+      house_profit_usdt: r2(house_profit_orders_usdt),
+      house_profit_orders_usdt: r2(house_profit_orders_usdt),
+      withdraw_amount_total_usdt: r2(withdraw_amount_total_usdt),
+      withdraw_fee_house_usdt: r2(withdraw_fee_house_usdt),
+      house_profit_total_usdt: r2(house_profit_total_usdt),
+      affiliate_commission_due_usdt: r2(affiliate_commission_due_usdt),
+      commissions_paid_usdt: r2(commissions_paid_usdt),
+    };
+  }
+}
+
+affiliateMetricsRouter.get("/metrics/summary", async (req: Request, res: Response) => {
+  const prisma = (req as any).prisma as PrismaClient;
+  if (!prisma) return res.status(500).json({ error: 'prisma_not_injected' });
+
+  const range = (String(req.query.range || "30d") as Range);
+  const tz = String(req.query.tz || "America/Sao_Paulo");
+  const affiliateId = String(req.query.affiliateId || "all");
+
+  const { start, end } = windowFor(range);
+  const summary = await loadMetrics(prisma, start, end);
+
+  return res.json({
+    version: "v2",
+    range,
+    timezone: tz,
+    scope: affiliateId === "all" ? "global" : "affiliate",
+    summary,
+  });
+});
