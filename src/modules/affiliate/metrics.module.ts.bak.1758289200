@@ -1,0 +1,293 @@
+import { Router, Request, Response } from 'express';
+import prisma from '../../lib/prisma';
+import { Prisma } from '@prisma/client';
+
+export const affiliateMetricsRouter = Router();
+
+/**
+ * Utilitários de introspecção
+ */
+async function tableExists(table: string): Promise<boolean> {
+  const r = await prisma.$queryRaw<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = ${table}
+    ) AS exists
+  `;
+  return Boolean(r?.[0]?.exists);
+}
+
+async function firstExistingTable(candidates: string[]): Promise<string | null> {
+  for (const t of candidates) {
+    if (await tableExists(t)) return t;
+  }
+  return null;
+}
+
+async function columnsOf(table: string): Promise<Record<string, true>> {
+  const rows = await prisma.$queryRaw<{ column_name: string }[]>`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = ${table}
+  `;
+  const out: Record<string, true> = {};
+  for (const r of rows) out[r.column_name] = true;
+  return out;
+}
+
+function pickColumn(cols: Record<string, true>, candidates: string[]): string | null {
+  for (const c of candidates) if (cols[c]) return c;
+  return null;
+}
+
+/** Sanitiza identificador (tabela/coluna) previamente escolhido da introspecção */
+function ident(id: string): string {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(id)) throw new Error(`invalid identifier: ${id}`);
+  // retorna SEMPRE com aspas, ex.: "userId"
+  return `"${id}"`.replace(/""/g, '"');
+}
+
+/** Intervalo */
+function rangeToSql(range: string): string {
+  switch ((range || '30d').toLowerCase()) {
+    case '7d': return "interval '7 days'";
+    case '14d': return "interval '14 days'";
+    case '30d': return "interval '30 days'";
+    case '90d': return "interval '90 days'";
+    case '180d': return "interval '180 days'";
+    case '365d': return "interval '365 days'";
+    case 'all': return "interval '100 years'";
+    default: return "interval '30 days'";
+  }
+}
+
+/**
+ * GET /api/affiliate/metrics/summary
+ * Query:
+ *   - range=7d|14d|30d|90d|180d|365d|all  (default 30d)
+ *   - tz=America/Sao_Paulo|UTC           (sem efeito em agregação, só eco)
+ *   - affiliateId=<uuid> | aff=<uuid>    (modo por afiliado)
+ *   - affiliateId=all | scope=global     (modo global/OPS)
+ */
+affiliateMetricsRouter.get('/metrics/summary', async (req: Request, res: Response) => {
+  try {
+    const auth = (req as any).user || (req as any).auth || null;
+
+    // suporte a ?affiliateId=<uuid> | ?aff=<uuid> | ?affiliateId=all | ?scope=global
+    const paramAffiliate = String(req.query.affiliateId || req.query.aff || '').trim();
+    const scopeParam = String(req.query.scope || '').trim().toLowerCase();
+    const isGlobal = paramAffiliate.toLowerCase() === 'all' || scopeParam === 'global';
+
+    const affiliateId: string | null =
+      !isGlobal
+        ? (paramAffiliate || auth?.id || auth?.userId || auth?.sub || null)
+        : null;
+
+    if (!isGlobal && !affiliateId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Missing affiliate id. Use ?affiliateId=<uuid> ou ?affiliateId=all (global).',
+      });
+    }
+
+    const range = String(req.query.range || '30d');
+    const tz = String(req.query.tz || 'UTC');
+    const iv = rangeToSql(range);
+
+    // ---------- USERS ----------
+    const usersCols = await columnsOf('users');
+    const colId = pickColumn(usersCols, ['id'])!;
+    const colReferredBy = pickColumn(usersCols, ['referredBy', 'referred_by']);
+    // (não usamos em agregação, mas deixo resolvido para futuro)
+    const _colCreatedUsers =
+      pickColumn(usersCols, ['createdAt', 'created_at', 'created_ts']) || 'createdAt';
+
+    const noteParts: string[] = [];
+
+    // referrals
+    let referrals = 0;
+    if (colReferredBy) {
+      if (isGlobal) {
+        const rows = await prisma.$queryRaw<{ cnt: string }[]>(Prisma.sql`
+          SELECT COUNT(*)::text AS cnt
+          FROM public.users u
+          WHERE ${Prisma.raw(ident(colReferredBy))} IS NOT NULL
+        `);
+        referrals = Number(rows?.[0]?.cnt || 0);
+      } else {
+        const rows = await prisma.$queryRaw<{ cnt: string }[]>(Prisma.sql`
+          SELECT COUNT(*)::text AS cnt
+          FROM public.users u
+          WHERE ${Prisma.raw(ident(colReferredBy))}::text = ${affiliateId!}
+        `);
+        referrals = Number(rows?.[0]?.cnt || 0);
+      }
+    } else {
+      noteParts.push('users.referredBy_ausente');
+    }
+
+    // ---------- ORDERS ----------
+    const hasOrders = await tableExists('orders');
+    let orders = 0;
+    let volume = 0;
+    let pnlHouse = 0;
+
+    if (hasOrders) {
+      const ordersCols = await columnsOf('orders');
+      const oUserId = pickColumn(ordersCols, ['userId', 'user_id']) || 'userId';
+      const oAmount = pickColumn(ordersCols, ['amount']) || 'amount';
+      const oCreated = pickColumn(ordersCols, ['createdAt', 'created_at', 'created_ts']) || 'createdAt';
+      const oPnl = pickColumn(ordersCols, ['realized_pnl_usdt']); // opcional
+
+      const affWhere = colReferredBy
+        ? (isGlobal
+            ? Prisma.sql`${Prisma.raw(ident(colReferredBy))} IS NOT NULL`
+            : Prisma.sql`${Prisma.raw(ident(colReferredBy))}::text = ${affiliateId!}`
+          )
+        : Prisma.sql`1=0`;
+
+      const rows = await prisma.$queryRaw<{
+        orders_30d: string;
+        volume_30d: string;
+        pnl_client_30d: string;
+      }[]>(Prisma.sql`
+        WITH aff AS (
+          SELECT ${Prisma.raw(ident(colId))} AS uid
+          FROM public.users
+          WHERE ${affWhere}
+        )
+        SELECT
+          COUNT(*)::text AS orders_30d,
+          COALESCE(SUM(${Prisma.raw(ident(oAmount))}),0)::text AS volume_30d,
+          COALESCE(SUM(${Prisma.raw(oPnl ? ident(oPnl) : '0')}),0)::text AS pnl_client_30d
+        FROM public.orders o
+        JOIN aff a ON a.uid = ${Prisma.raw(`o.${ident(oUserId)}`)}
+        WHERE ${Prisma.raw(`o.${ident(oCreated)}`)} >= (now() AT TIME ZONE 'UTC') - ${Prisma.raw(iv)}
+      `);
+
+      const r = rows?.[0];
+      orders = Number(r?.orders_30d || 0);
+      volume = Number(r?.volume_30d || 0);
+      const pnlClient = Number(r?.pnl_client_30d || 0);
+      pnlHouse = -pnlClient; // casa = -cliente
+    }
+
+    // ---------- WITHDRAWALS ----------
+    const withdrawTable = await firstExistingTable(['withdrawals', 'withdraw', 'user_withdrawals', 'payouts']);
+    let withdrawAmount = 0;
+    let withdrawFeeHouse = 0;
+
+    if (withdrawTable) {
+      const wCols = await columnsOf(withdrawTable);
+      const wUserId = pickColumn(wCols, ['userId', 'user_id']);
+      const wAmount = pickColumn(wCols, ['amount_usdt', 'amount']);
+      const wFee    = pickColumn(wCols, ['fee_house_usdt', 'fee_usdt', 'fee']);
+      const wStatus = pickColumn(wCols, ['status']); // opcional
+      const wCreated= pickColumn(wCols, ['createdAt', 'created_at', 'created_ts']) || 'createdAt';
+
+      if (!wUserId || !wAmount || !wCreated) {
+        noteParts.push('withdrawals.colunas_ausentes');
+      } else {
+        const affWhere = colReferredBy
+          ? (isGlobal
+              ? Prisma.sql`${Prisma.raw(ident(colReferredBy))} IS NOT NULL`
+              : Prisma.sql`${Prisma.raw(ident(colReferredBy))}::text = ${affiliateId!}`
+            )
+          : Prisma.sql`1=0`;
+
+        const sql = Prisma.sql`
+          WITH aff AS (
+            SELECT ${Prisma.raw(ident(colId))} AS uid
+            FROM public.users
+            WHERE ${affWhere}
+          )
+          SELECT
+            COALESCE(SUM(${Prisma.raw(ident(wAmount))}),0)::text AS amount_sum,
+            COALESCE(SUM(${Prisma.raw(wFee ? ident(wFee) : '0')}),0)::text AS fee_sum
+          FROM ${Prisma.raw(`public.${withdrawTable}`)} w
+          JOIN aff a ON a.uid = ${Prisma.raw(`w.${ident(wUserId)}`)}
+          WHERE ${Prisma.raw(`w.${ident(wCreated)}`)} >= (now() AT TIME ZONE 'UTC') - ${Prisma.raw(iv)}
+          ${wStatus ? Prisma.sql`AND ${Prisma.raw(`w.${ident(wStatus)}`)} = 'completed'` : Prisma.empty}
+        `;
+        const rr = await prisma.$queryRaw<{ amount_sum: string; fee_sum: string }[]>(sql);
+        withdrawAmount = Number(rr?.[0]?.amount_sum || 0);
+        withdrawFeeHouse = Number(rr?.[0]?.fee_sum || 0);
+      }
+    } else {
+      noteParts.push('withdrawals.tabela_ausente');
+    }
+
+    // ---------- COMMISSION LEDGER ----------
+    let commissionDue = 0;
+    let commissionsPaid = 0;
+
+    if (await tableExists('commission_ledger')) {
+      const cCols = await columnsOf('commission_ledger');
+      const cAff   = pickColumn(cCols, ['affiliate_user_id', 'user_id']);
+      const cAmt   = pickColumn(cCols, ['amount_usdt', 'amount']);
+      const cPaid  = pickColumn(cCols, ['is_paid', 'paid']);
+      const cIsAff = pickColumn(cCols, ['is_affiliate']); // opcional
+      const cCreated = pickColumn(cCols, ['createdAt', 'created_at', 'created_ts']) || 'createdAt';
+
+      const missing = !cAmt || !cPaid || !cCreated || (!isGlobal && !cAff);
+      if (missing) {
+        noteParts.push('commission_ledger.colunas_ausentes');
+      } else {
+        const baseWhere = Prisma.sql`
+          WHERE ${Prisma.raw(ident(cCreated))} >= (now() AT TIME ZONE 'UTC') - ${Prisma.raw(iv)}
+          ${cIsAff ? Prisma.sql`AND COALESCE(${Prisma.raw(ident(cIsAff))}, true) = true` : Prisma.empty}
+          ${!isGlobal ? Prisma.sql`AND ${Prisma.raw(ident(cAff!))}::text = ${affiliateId!}` : Prisma.empty}
+        `;
+
+        const rDue = await prisma.$queryRaw<{ sum: string }[]>(Prisma.sql`
+          SELECT COALESCE(SUM(${Prisma.raw(ident(cAmt!))}),0)::text AS sum
+          FROM public.commission_ledger
+          ${baseWhere}
+          AND COALESCE(${Prisma.raw(ident(cPaid!))}, false) = false
+        `);
+
+        const rPaid = await prisma.$queryRaw<{ sum: string }[]>(Prisma.sql`
+          SELECT COALESCE(SUM(${Prisma.raw(ident(cAmt!))}),0)::text AS sum
+          FROM public.commission_ledger
+          ${baseWhere}
+          AND COALESCE(${Prisma.raw(ident(cPaid!))}, false) = true
+        `);
+
+        commissionDue   = Number(rDue?.[0]?.sum || 0);
+        commissionsPaid = Number(rPaid?.[0]?.sum || 0);
+      }
+    } else {
+      noteParts.push('commission_ledger.tabela_ausente');
+    }
+
+    const summary = {
+      referrals,
+      orders,
+      volume_usdt: volume,
+      house_profit_usdt: pnlHouse,
+      house_profit_orders_usdt: pnlHouse,
+      withdraw_amount_total_usdt: withdrawAmount,
+      withdraw_fee_house_usdt: withdrawFeeHouse,
+      house_profit_total_usdt: pnlHouse + withdrawFeeHouse,
+      affiliate_commission_due_usdt: commissionDue,
+      commissions_paid_usdt: commissionsPaid,
+    };
+
+    return res.json({
+      version: 'v2',
+      range,
+      timezone: tz,
+      ...(isGlobal ? { scope: 'global' } : { affiliateId }),
+      summary,
+      ...(noteParts.length ? { note: noteParts.join(' | ') } : {}),
+    });
+  } catch (err: any) {
+    // Evita vazar erro bruto
+    return res.status(500).json({
+      success: false,
+      error: 'internal_error',
+      detail: String(err?.message || err),
+    });
+  }
+});

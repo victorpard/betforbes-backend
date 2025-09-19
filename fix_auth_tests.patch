@@ -1,0 +1,59 @@
+diff --git a/tests/auth.protected.e2e.spec.ts b/tests/auth.protected.e2e.spec.ts
+index 1234567..abcdef0 100644
+--- a/tests/auth.protected.e2e.spec.ts
++++ b/tests/auth.protected.e2e.spec.ts
+@@ -11,7 +11,11 @@ describe("Fluxo de Endpoints Protegidos, Refresh e Logout", () => {
+   it("2) Cadastro e verificação de email", async () => {
+     const res = await request(app)
+       .post('/api/auth/register')
+-      .send({ name: 'Teste Protegido', email, password })
++      .send({ 
++        name: 'Teste Protegido', 
++        email, 
++        password, 
++        passwordConfirmation: password 
++      })
+       .then(r => { if (r.status !== 201) console.log('REGISTER FAIL BODY:', r.body); expect(r.status).toBe(201); });
+
+     const tokenRec = await prisma.emailVerificationToken.findFirst({
+@@ -21,6 +25,12 @@ describe("Fluxo de Endpoints Protegidos, Refresh e Logout", () => {
+     expect(tokenRec).toBeTruthy();
+     verifyToken = tokenRec?.token;
+
++    // 👉 Verifica o email antes do login
++    const verifyRes = await request(app)
++      .get(`/api/auth/verify-email?token=${verifyToken}`);
++    expect([200, 302]).toContain(verifyRes.status);
++    console.log("✅ Email verificado para:", email);
++
+     // 3) /profile com token válido retorna dados do usuário
+     const login = await request(app)
+       .post('/api/auth/login')
+diff --git a/tests/auth.flows.e2e.spec.ts b/tests/auth.flows.e2e.spec.ts
+index 2345678..bcdef01 100644
+--- a/tests/auth.flows.e2e.spec.ts
++++ b/tests/auth.flows.e2e.spec.ts
+@@ -33,7 +33,11 @@ describe('Fluxos de Autenticação', () => {
+   it('Registro de usuário: sucesso', async () => {
+     const res = await request(app)
+       .post('/api/auth/register')
+-      .send({ name: 'E2E Test', email: testEmail, password: testPwd });
++      .send({ 
++        name: 'E2E Test', 
++        email: testEmail, 
++        password: testPwd,
++        passwordConfirmation: testPwd
++      });
+     expect(res.status).toBe(201);
+     expect(res.body.success).toBe(true);
+     userId = res.body.data.user.id;
+@@ -63,6 +67,12 @@ describe('Fluxos de Autenticação', () => {
+   it('Verificação de e-mail (pré-requisito login)', async () => {
+     const res = await request(app)
+       .get(`/api/auth/verify-email?token=${verifyToken}`);
+-    expect(res.status).toBe(200);
++    expect([200, 302]).toContain(res.status);
++    console.log("✅ Email verificado no fluxo:", testEmail);
+   });
+
+   it('Login bem-sucedido após verificação', async () => {

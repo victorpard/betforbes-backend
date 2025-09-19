@@ -1,0 +1,4 @@
+0 3 * * * /root/bettrading/backup_postgres.sh
+0 12 * * * /usr/bin/certbot renew --quiet && systemctl reload nginx
+7 3 * * * CODE=5NI291 FRONT_URL=https://www.betforbes.com /usr/local/bin/bf-smoke.sh >> /var/log/bf_smoke.log 2>&1
+12 3 * * * CODE=5NI291 FRONT_URL=https://betforbes.com /usr/local/bin/bf-smoke.sh >> /var/log/bf_smoke.log 2>&1

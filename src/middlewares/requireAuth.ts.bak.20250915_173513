@@ -1,0 +1,85 @@
+import { Request, Response, NextFunction } from 'express';
+import jwt, { JwtPayload } from 'jsonwebtoken';
+
+type UserPayload = {
+  id: string;
+  email: string;
+  role: string;
+  name: string;
+  isVerified: boolean;
+};
+
+function b64urlToUtf8(s: string): string {
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  return Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/') + pad, 'base64').toString('utf8');
+}
+
+function getVerifierForToken(token: string) {
+  const parts = token.split('.');
+  if (parts.length !== 3) throw new Error('Malformed token');
+  let header: any = {};
+  try { header = JSON.parse(b64urlToUtf8(parts[0])); } catch { /* ignore */ }
+
+  const alg = String(header?.alg || '').toUpperCase();
+
+  if (alg === 'RS256') {
+    const pub = process.env.JWT_PUBLIC_KEY;
+    if (!pub || !pub.trim()) throw new Error('Missing JWT_PUBLIC_KEY for RS256');
+    const key = pub.includes('BEGIN PUBLIC KEY')
+      ? pub
+      : Buffer.from(pub, 'base64').toString('utf8');
+    return { key, algorithms: ['RS256'] as jwt.Algorithm[] };
+  }
+
+  if (alg === 'HS256') {
+    const sec = process.env.JWT_SECRET;
+    if (!sec || !sec.trim()) throw new Error('Missing JWT_SECRET for HS256');
+    return { key: sec, algorithms: ['HS256'] as jwt.Algorithm[] };
+  }
+
+  // fallback conservador: se não há alg, preferir RS256 se chave existir, senão HS256
+  const pub = process.env.JWT_PUBLIC_KEY?.trim();
+  const sec = process.env.JWT_SECRET?.trim();
+  if (pub) {
+    const key = pub.includes('BEGIN PUBLIC KEY')
+      ? pub
+      : Buffer.from(pub, 'base64').toString('utf8');
+    return { key, algorithms: ['RS256'] as jwt.Algorithm[] };
+  }
+  if (sec) return { key: sec, algorithms: ['HS256'] as jwt.Algorithm[] };
+
+  throw new Error('JWT_PUBLIC_KEY ou JWT_SECRET precisam estar definidos');
+}
+
+export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  const auth = req.header('authorization') || req.header('Authorization');
+  const m = auth?.match(/^Bearer\s+(.+)$/i);
+  const token = m?.[1];
+
+  if (!token) {
+    return res.status(401).json({ success: false, error: 'Missing Bearer token' });
+  }
+
+  try {
+    const { key, algorithms } = getVerifierForToken(token);
+    const payload = jwt.verify(token, key, { algorithms }) as JwtPayload & Partial<UserPayload>;
+
+    // Normaliza campos comuns (usa sub, id OU userId)
+    const user: UserPayload = {
+      id: String(payload.sub ?? (payload as any).id ?? (payload as any).userId ?? ''),
+      email: (payload as any).email ?? '',
+      role: (payload as any).role ?? 'user',
+      name: (payload as any).name ?? '',
+      isVerified: Boolean((payload as any).isVerified),
+    };
+
+    if (!user.id) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+    }
+
+    (req as any).user = user;
+    return next();
+  } catch {
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
+  }
+};
