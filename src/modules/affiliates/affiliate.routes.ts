@@ -19,10 +19,10 @@ const router = Router();
  *           description: Usuários referenciados ativos (verificados)
  *         totalEarnings:
  *           type: number
- *           description: Total de ganhos em reais
+ *           description: Total de ganhos em reais (exemplo)
  *         referralLink:
  *           type: string
- *           description: Link único de referência
+ *           description: Link único de referência do usuário
  *
  *     ReferralUser:
  *       type: object
@@ -52,53 +52,9 @@ const router = Router();
 
 /**
  * @swagger
- * /api/affiliate/create:
- *   post:
- *     summary: Criar perfil de afiliado para o usuário
- *     tags: [Afiliados]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/CreateAffiliateRequest'
- *     responses:
- *       201:
- *         description: Afiliado criado com sucesso
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Afiliado criado com sucesso"
- *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                     code:
- *                       type: string
- *                     referralLink:
- *                       type: string
- *       400:
- *         description: Dados inválidos ou usuário já é afiliado
- *       401:
- *         description: Não autorizado
- */
-//router.post('/create', authMiddleware, affiliateController.getReferralLink);
-
-/**
- * @swagger
  * /api/affiliate/link:
  *   get:
- *     summary: Obter link único de referência
+ *     summary: Obter link único de referência do usuário autenticado
  *     tags: [Afiliados]
  *     security:
  *       - bearerAuth: []
@@ -115,12 +71,13 @@ const router = Router();
  *                   example: true
  *                 message:
  *                   type: string
+ *                   example: "OK"
  *                 data:
  *                   type: object
  *                   properties:
  *                     referralLink:
  *                       type: string
- *                       example: "https://www.betforbes.com/cadastro?ref=ABC123"
+ *                       example: "https://www.betforbes.com/register?ref=ABC123"
  *                     referralCode:
  *                       type: string
  *                       example: "ABC123"
@@ -129,9 +86,43 @@ router.get('/link', authMiddleware, affiliateController.getReferralLink);
 
 /**
  * @swagger
+ * /api/affiliate/me:
+ *   get:
+ *     summary: Alias para obter o link/código de referência do usuário autenticado
+ *     tags: [Afiliados]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dados de referência obtidos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "OK"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     referralLink:
+ *                       type: string
+ *                       example: "https://www.betforbes.com/register?ref=ABC123"
+ *                     referralCode:
+ *                       type: string
+ *                       example: "ABC123"
+ */
+router.get('/me', authMiddleware, affiliateController.getReferralLink);
+
+/**
+ * @swagger
  * /api/affiliate/stats:
  *   get:
- *     summary: Obter estatísticas de afiliados
+ *     summary: Obter estatísticas de afiliados do usuário autenticado
  *     tags: [Afiliados]
  *     security:
  *       - bearerAuth: []
@@ -148,6 +139,7 @@ router.get('/link', authMiddleware, affiliateController.getReferralLink);
  *                   example: true
  *                 message:
  *                   type: string
+ *                   example: "OK"
  *                 data:
  *                   $ref: '#/components/schemas/AffiliateStats'
  */
@@ -157,7 +149,7 @@ router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
  * @swagger
  * /api/affiliate/referrals:
  *   get:
- *     summary: Listar usuários referenciados
+ *     summary: Listar usuários referenciados pelo usuário autenticado
  *     tags: [Afiliados]
  *     security:
  *       - bearerAuth: []
@@ -187,6 +179,7 @@ router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
  *                   example: true
  *                 message:
  *                   type: string
+ *                   example: "OK"
  *                 data:
  *                   type: object
  *                   properties:
@@ -196,11 +189,17 @@ router.get('/stats', authMiddleware, affiliateController.getAffiliateStats);
  *                         $ref: '#/components/schemas/ReferralUser'
  *                     total:
  *                       type: number
+ *                       example: 23
  *                     page:
  *                       type: number
+ *                       example: 1
  *                     totalPages:
  *                       type: number
+ *                       example: 3
  */
 router.get('/referrals', authMiddleware, affiliateController.getReferrals);
+
+// (Opcional) rota de criação estava comentada; mantenho como referência:
+// router.post('/create', authMiddleware, affiliateController.createAffiliate);
 
 export default router;
