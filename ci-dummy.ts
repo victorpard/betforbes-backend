@@ -1,2 +1,0 @@
-/* dummy para CI */
-export {};
