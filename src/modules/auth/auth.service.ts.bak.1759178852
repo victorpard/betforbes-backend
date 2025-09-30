@@ -1,4 +1,3 @@
-// src/modules/auth/auth.service.ts
 import { issueTokenPair } from '../../lib/jwt';
 import { signWithJti } from '../../lib/signWithJti';
 import { randomUUID } from 'crypto';
@@ -37,11 +36,11 @@ export interface AuthResult {
 }
 
 /**
- * Normaliza código de referral vindo de query/string solta
- * (sem tocar em nome do usuário)
+ * Normaliza código (trim) e resolve dono do código:
+ * 1) tenta User.referralCode
+ * 2) tenta Affiliate.code (se o modelo existir neste branch)
  */
-const normalizeReferral = (code?: string) =>
-  (code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+const normalizeReferral = (code?: string) => (code || '').trim();
 
 const findReferrerByAnyCode = async (
   code?: string
@@ -56,8 +55,9 @@ const findReferrerByAnyCode = async (
   });
   if (u) return u;
 
-  // 2) affiliate.code (compatível entre branches — se existir)
+  // 2) affiliate.code (compatibilidade entre branches)
   try {
+    // cast para any para não estourar tipo quando o model não existe neste schema
     const affiliateClient = (prisma as any).affiliate;
     if (affiliateClient?.findUnique) {
       const a = await affiliateClient.findUnique({
@@ -73,7 +73,7 @@ const findReferrerByAnyCode = async (
       }
     }
   } catch {
-    // tabela pode não existir neste branch
+    // ignorar silenciosamente: tabela pode não existir neste branch
   }
 
   return null;
@@ -99,87 +99,99 @@ function issueAccessToken(user: UserCore) {
 
 class AuthService {
   /**
-   * Registro de novo usuário — único ponto onde definimos `name` a partir do input
-   * (Não há qualquer auto-tradução/normalização de nome)
+   * Registra um novo usuário
    */
   async register(data: RegisterData): Promise<{ user: any; emailSent: boolean }> {
-    const { name, email, password } = data;
+    const { name, email, password, referralCode } = data;
 
     // Verificar se email já existe
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
+
     if (existingUser) {
       throw createError('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
     }
 
-    // Normalizar/validar referral e resolver referenciador (ignora se inválido)
-    let referredById: string | null = null;
-    const raw = normalizeReferral(data.referralCode);
-    if (raw && /^[A-Z0-9]{4,12}$/.test(raw)) {
-      const ref = await prisma.user.findUnique({ where: { referralCode: raw } });
-      if (ref) referredById = ref.id;
+    // Verificar código de referência (aceita ambos os formatos)
+    let referredBy: string | null = null;
+    if (referralCode) {
+      const refOwner = await findReferrerByAnyCode(referralCode);
+      if (!refOwner) {
+        throw createError('Código de referência inválido', 400, 'INVALID_REFERRAL_CODE');
+      }
+
+      // 🚫 Bloqueia auto-referência
+      if (refOwner.email.toLowerCase() === email.toLowerCase()) {
+        throw createError('Você não pode usar seu próprio código de referência', 400, 'SELF_REFERRAL');
+      }
+
+      referredBy = refOwner.id;
     }
 
     // Hash da senha
     const hashedPassword = await hashPassword(password);
 
-    // Gerar código de referência único (6 A-Z/0-9)
+    // Gerar código de referência único (User.referralCode)
     let userReferralCode: string;
     do {
-      userReferralCode = Array.from({ length: 6 }, () =>
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'[Math.floor(Math.random() * 36)]
-      ).join('');
+      userReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
     } while (await prisma.user.findUnique({ where: { referralCode: userReferralCode } }));
 
-    // Criar usuário (definimos apenas os campos necessários; name vem do input)
+    // Criar usuário
     const user = await prisma.user.create({
       data: {
         name,
         email: email.toLowerCase(),
         password: hashedPassword,
         referralCode: userReferralCode,
-        referredById,
+        referredBy,
       },
       select: {
-        id: true, name: true, email: true, role: true, isVerified: true, balance: true,
-        referralCode: true, createdAt: true,
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isVerified: true,
+        balance: true,
+        referralCode: true,
+        createdAt: true,
       },
     });
 
     // Gerar token de verificação de email
     const verificationToken = generateSecureToken();
-    const expiresAt = getExpirationDate(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440'));
-    await prisma.emailVerificationToken.create({
-      data: { token: verificationToken, userId: user.id, expiresAt },
-    });
-
-    // Enviar email de verificação:
-    // se houver referredById, embute ?code=<referralCode do referenciador> no link
-    let extra: { code?: string } | undefined;
-    if (referredById) {
-      const refOwner = await prisma.user.findUnique({
-        where: { id: referredById },
-        select: { referralCode: true },
-      });
-      if (refOwner?.referralCode) {
-        extra = { code: refOwner.referralCode };
-      }
-    }
-    // cast para any para ser compatível mesmo antes do patch de type em emailService
-    const emailSent = await (emailService as any).sendVerificationEmail(
-      user.email,
-      user.name,
-      verificationToken,
-      extra // { code } opcional
+    const expiresAt = getExpirationDate(
+      parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440') // 24 horas
     );
 
-    logger.info(`👤 Novo usuário: ${user.email} (refById=${referredById ?? 'null'})`);
-    return { user, emailSent };
+    await prisma.emailVerificationToken.create({
+      data: {
+        token: verificationToken,
+        userId: user.id,
+        expiresAt,
+      },
+    });
+
+    // Enviar email de verificação
+    const emailSent = await emailService.sendVerificationEmail(
+      user.email,
+      user.name,
+      verificationToken
+    );
+
+    logger.info(
+      `👤 Novo usuário registrado: ${user.email}${referredBy ? ` (referredBy=${referredBy})` : ''}`
+    );
+
+    return {
+      user,
+      emailSent,
+    };
   }
 
   /**
-   * Login — NÃO altera `name`
+   * Faz login do usuário
    */
   async login(data: LoginData): Promise<AuthResult> {
     const { email, password } = data;
@@ -212,7 +224,7 @@ class AuthService {
     // Gerar tokens **com id do DB**
     const tokens = issueTokenPair({ id: user.id, email: user.email, role: user.role });
 
-    // Atualizar último login (sem tocar no name)
+    // Atualizar último login
     await prisma.user.update({
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
@@ -243,10 +255,9 @@ class AuthService {
   }
 
   /**
-   * Verifica email do usuário — NÃO altera `name`
-   * Aplica referral apenas se ainda não houver referenciador.
+   * Verifica email do usuário
    */
-  async verifyEmail(token: string, referralRaw?: string): Promise<{ user: any }> {
+  async verifyEmail(token: string): Promise<{ user: any }> {
     // Buscar token
     const verificationToken = await prisma.emailVerificationToken.findUnique({
       where: { token },
@@ -265,7 +276,7 @@ class AuthService {
       throw createError('Token expirado', 400, 'TOKEN_EXPIRED');
     }
 
-    // Marcar usuário como verificado (sem tocar no name)
+    // Marcar usuário como verificado
     const user = await prisma.user.update({
       where: { id: verificationToken.userId },
       data: { isVerified: true },
@@ -287,38 +298,11 @@ class AuthService {
 
     logger.info(`✅ Email verificado: ${user.email}`);
 
-    // --- Auto-vínculo de referral na verificação (sem tocar no name) ---
-    try {
-      const raw = normalizeReferral(referralRaw);
-      if (raw && /^[A-Z0-9]{4,12}$/.test(raw)) {
-        // Só aplica se ainda não tiver referenciador
-        const current = await prisma.user.findUnique({
-          where: { id: user.id },
-          select: { referredById: true },
-        });
-        if (current && !current.referredById) {
-          const ref = await prisma.user.findUnique({
-            where: { referralCode: raw },
-            select: { id: true },
-          });
-          if (ref && ref.id !== user.id) {
-            await prisma.user.update({
-              where: { id: user.id },
-              data: { referredById: ref.id },
-            });
-            logger.info(`🤝 Referral aplicado na verificação: ${user.email} -> code=${raw}`);
-          }
-        }
-      }
-    } catch (e) {
-      logger.warn(`(verifyEmail) falha ao aplicar referral: ${(e as Error).message}`);
-    }
-
     return { user };
   }
 
   /**
-   * Reenvia email de verificação — NÃO altera `name`
+   * Reenvia email de verificação
    */
   async resendVerification(email: string): Promise<{ emailSent: boolean }> {
     const user = await prisma.user.findUnique({
@@ -354,7 +338,7 @@ class AuthService {
       },
     });
 
-    // Enviar email (sem mudar name)
+    // Enviar email
     const emailSent = await emailService.sendVerificationEmail(
       user.email,
       user.name,
@@ -367,7 +351,7 @@ class AuthService {
   }
 
   /**
-   * Solicita recuperação de senha — NÃO altera `name`
+   * Solicita recuperação de senha
    */
   async forgotPassword(email: string): Promise<{ emailSent: boolean }> {
     const user = await prisma.user.findUnique({
@@ -413,7 +397,7 @@ class AuthService {
   }
 
   /**
-   * Redefine senha — NÃO altera `name`
+   * Redefine senha do usuário
    */
   async resetPassword(token: string, newPassword: string): Promise<{ success: boolean }> {
     // Buscar token
@@ -437,7 +421,7 @@ class AuthService {
     // Hash da nova senha
     const hashedPassword = await hashPassword(newPassword);
 
-    // Atualizar senha (sem tocar no name)
+    // Atualizar senha
     await prisma.user.update({
       where: { id: resetToken.userId },
       data: { password: hashedPassword },
@@ -461,7 +445,7 @@ class AuthService {
   }
 
   /**
-   * Refresh token — NÃO altera `name`
+   * Refresh token
    */
   async refreshToken(refreshToken: string): Promise<{ accessToken: string }> {
     // Verificar se sessão existe e está ativa
@@ -500,7 +484,7 @@ class AuthService {
   }
 
   /**
-   * Logout — NÃO altera `name`
+   * Logout
    */
   async logout(refreshToken: string): Promise<{ success: boolean }> {
     // Desativar sessão

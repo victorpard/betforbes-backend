@@ -186,7 +186,7 @@ router.post(
     if (!token) {
       return res.status(400).json({ success: false, message: 'Token de verificação ausente.' });
     }
-    await authService.verifyEmail(token, (req?.body?.code || req?.body?.referralCode || (req?.query?.code as string) || (req?.query?.ref as string) || req?.cookies?.bf_ref || ""));
+    await authService.verifyEmail(token);
     return res.json({ success: true, message: 'E-mail verificado com sucesso.' });
   })
 );

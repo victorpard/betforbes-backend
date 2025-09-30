@@ -1,104 +1,50 @@
-import jwt, { SignOptions } from 'jsonwebtoken';
-import { User } from '@prisma/client';
+import * as jwt from 'jsonwebtoken';
+import { randomUUID } from 'crypto';
 
-export interface JWTPayload {
-  userId: string;
-  email: string;
-  role: string;
-  iat?: number;
-  exp?: number;
+const JWT_SECRET = process.env.JWT_SECRET as jwt.Secret;
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET as jwt.Secret;
+
+type AnyPayload = Record<string, any>;
+
+/**
+ * Emite par de tokens com jti ÚNICO em CADA token (no payload).
+ * Mantém expiração original (15m / 7d).
+ */
+export function issueTokenPair(payload: AnyPayload) {
+  const accessToken  = jwt.sign({ ...payload, jti: randomUUID() }, JWT_SECRET,         { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ ...payload, jti: randomUUID() }, JWT_REFRESH_SECRET, { expiresIn: '7d'  });
+  return { accessToken, refreshToken };
 }
 
-export interface TokenPair {
-  accessToken: string;
-  refreshToken: string;
-}
+/**
+ * Compat (default export) para locais que fazem `import jwtService from '../lib/jwt'`.
+ * Inclui helpers esperados pelo middleware.
+ */
+const jwtService = {
+  // wrappers síncronos
+  sign: jwt.sign,
+  verify: jwt.verify,
+  decode: jwt.decode,
 
-class JWTService {
-  private readonly accessTokenSecret: string;
-  private readonly refreshTokenSecret: string;
-  private readonly accessTokenExpiry: string;
-  private readonly refreshTokenExpiry: string;
+  // wrappers "async" compat (evitam TS2556 usando any)
+  signAsync: async (...args: any[]) => (jwt.sign as any)(...args),
+  verifyAsync: async (...args: any[]) => (jwt.verify as any)(...args),
 
-  constructor() {
-    this.accessTokenSecret = process.env.JWT_SECRET || 'fallback-secret';
-    this.refreshTokenSecret = process.env.JWT_REFRESH_SECRET || 'fallback-refresh-secret';
-    this.accessTokenExpiry = process.env.JWT_EXPIRES_IN || '15m';
-    this.refreshTokenExpiry = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
-  }
+  // helpers usados em src/middlewares/auth.ts
+  extractTokenFromHeader(header?: string) {
+    if (!header) throw new Error('Authorization header missing');
+    const m = /^Bearer\s+(.+)$/i.exec(header.trim());
+    if (!m) throw new Error('Invalid Authorization header');
+    return m[1];
+  },
 
-  /**
-   * Gera um par de tokens (access + refresh) para um usuário
-   */
-  generateTokenPair(user: Pick<User, 'id' | 'email' | 'role'>): TokenPair {
-    const payload = {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-    };
+  verifyAccessToken(token: string) {
+    return jwt.verify(token, JWT_SECRET) as AnyPayload;
+  },
 
-    const signOptions: any = {
-      expiresIn: this.accessTokenExpiry,
-    };
+  verifyRefreshToken(token: string) {
+    return jwt.verify(token, JWT_REFRESH_SECRET) as AnyPayload;
+  },
+};
 
-    const refreshSignOptions: any = {
-      expiresIn: this.refreshTokenExpiry,
-    };
-
-    const accessToken = jwt.sign(payload, this.accessTokenSecret, signOptions);
-    const refreshToken = jwt.sign(payload, this.refreshTokenSecret, refreshSignOptions);
-
-    return { accessToken, refreshToken };
-  }
-
-  /**
-   * Verifica e decodifica um access token
-   */
-  verifyAccessToken(token: string): JWTPayload {
-    try {
-      return jwt.verify(token, this.accessTokenSecret) as JWTPayload;
-    } catch (error) {
-      throw new Error('Token inválido ou expirado');
-    }
-  }
-
-  /**
-   * Verifica e decodifica um refresh token
-   */
-  verifyRefreshToken(token: string): JWTPayload {
-    try {
-      return jwt.verify(token, this.refreshTokenSecret) as JWTPayload;
-    } catch (error) {
-      throw new Error('Refresh token inválido ou expirado');
-    }
-  }
-
-  /**
-   * Gera um novo access token usando um refresh token válido
-   */
-  refreshAccessToken(refreshToken: string): string {
-    const payload = this.verifyRefreshToken(refreshToken);
-    
-    // Remove campos de tempo do payload original
-    const { iat, exp, ...userPayload } = payload;
-    
-    const signOptions: any = {
-      expiresIn: this.accessTokenExpiry,
-    };
-    
-    return jwt.sign(userPayload, this.accessTokenSecret, signOptions);
-  }
-
-  /**
-   * Extrai token do header Authorization
-   */
-  extractTokenFromHeader(authHeader?: string): string | null {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return null;
-    }
-    return authHeader.substring(7);
-  }
-}
-
-export default new JWTService();
-
+export default jwtService;
