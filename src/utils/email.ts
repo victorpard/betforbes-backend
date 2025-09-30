@@ -7,6 +7,10 @@ type SendParams = {
   text?: string;
 };
 
+type VerifyExtra = {
+  code?: string; // referralCode do referenciador (opcional)
+};
+
 const {
   SMTP_HOST = 'smtp.gmail.com',
   SMTP_PORT = '587',
@@ -27,8 +31,15 @@ function baseUrl(): string {
   return (FRONTEND_URL || 'https://www.betforbes.com').replace(/\/+$/, '');
 }
 
-function tokenToVerifyLink(token: string): string {
-  return `${baseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+function addQueryParam(url: string, key: string, value: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+function tokenToVerifyLink(token: string, extra?: VerifyExtra): string {
+  let link = `${baseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+  if (extra?.code) link = addQueryParam(link, 'code', extra.code);
+  return link;
 }
 
 function tokenToResetLink(token: string): string {
@@ -129,29 +140,48 @@ export function buildResetPasswordEmailHtml(link: string): string {
 
 /**
  * sendVerificationEmail:
- *  - Forma nova: sendVerificationEmail(to, link) -> Promise<boolean>
- *  - Compatível com legado: sendVerificationEmail(to, subject, linkOuTokenOuHtml)
+ *  - Forma nova: sendVerificationEmail(to, link)
+ *  - Legado:     sendVerificationEmail(to, subject, linkOuTokenOuHtml)
+ *  - Novo extra: sendVerificationEmail(to, subject, linkOuTokenOuHtml, { code })  -> anexa &code=<ref>
  */
 export function sendVerificationEmail(to: string, link: string): Promise<boolean>;
 export function sendVerificationEmail(to: string, subject: string, linkOrTokenOrHtml: string): Promise<boolean>;
-export async function sendVerificationEmail(to: string, a: string, b?: string): Promise<boolean> {
+export function sendVerificationEmail(
+  to: string,
+  subject: string,
+  linkOrTokenOrHtml: string,
+  extra: VerifyExtra | null
+): Promise<boolean>;
+export async function sendVerificationEmail(
+  to: string,
+  a: string,
+  b?: string,
+  extra?: VerifyExtra | null
+): Promise<boolean> {
+  const DEFAULT_SUBJECT = 'Confirme seu email — BetForbes';
   let subject: string;
   let html: string;
 
   if (b === undefined) {
     // Nova assinatura: (to, link)
-    subject = 'Confirme seu email — BetForbes';
+    subject = DEFAULT_SUBJECT;
     html = buildVerificationEmailHtml(a);
   } else {
-    // Legado: (to, subject, link/token/html)
-    subject = a;
+    // Legado/compat + suporte a { code }
+    const hasExtra = extra && typeof extra === 'object' && !!extra.code;
+
+    // Se o caller passou "a" como "nome" (caso legado), preferimos um subject padrão.
+    subject = hasExtra ? DEFAULT_SUBJECT : (a || DEFAULT_SUBJECT);
+
     if (/^https?:\/\//i.test(b)) {
-      html = buildVerificationEmailHtml(b); // já é link
+      const finalLink = hasExtra ? addQueryParam(b, 'code', String(extra!.code)) : b;
+      html = buildVerificationEmailHtml(finalLink);
     } else if (b.startsWith('<!doctype') || b.includes('<html')) {
-      html = b; // já é HTML pronto
+      html = b; // já é HTML completo
     } else {
       // token puro
-      html = buildVerificationEmailHtml(tokenToVerifyLink(b));
+      const link = tokenToVerifyLink(b, extra || undefined);
+      html = buildVerificationEmailHtml(link);
     }
   }
 
@@ -166,20 +196,21 @@ export async function sendVerificationEmail(to: string, a: string, b?: string): 
 
 /**
  * sendPasswordResetEmail:
- *  - Forma nova: sendPasswordResetEmail(to, link) -> Promise<boolean>
- *  - Compatível com legado: sendPasswordResetEmail(to, subject, linkOuTokenOuHtml)
+ *  - Forma nova: sendPasswordResetEmail(to, link)
+ *  - Compatível: sendPasswordResetEmail(to, subject, linkOuTokenOuHtml)
  */
 export function sendPasswordResetEmail(to: string, link: string): Promise<boolean>;
 export function sendPasswordResetEmail(to: string, subject: string, linkOrTokenOrHtml: string): Promise<boolean>;
 export async function sendPasswordResetEmail(to: string, a: string, b?: string): Promise<boolean> {
+  const DEFAULT_SUBJECT = 'Redefinir senha — BetForbes';
   let subject: string;
   let html: string;
 
   if (b === undefined) {
-    subject = 'Redefinir senha — BetForbes';
+    subject = DEFAULT_SUBJECT;
     html = buildResetPasswordEmailHtml(a);
   } else {
-    subject = a;
+    subject = a || DEFAULT_SUBJECT;
     if (/^https?:\/\//i.test(b)) {
       html = buildResetPasswordEmailHtml(b);
     } else if (b.startsWith('<!doctype') || b.includes('<html')) {

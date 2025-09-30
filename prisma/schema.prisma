@@ -76,6 +76,7 @@ model EmailVerificationToken {
   user      User     @relation("UserEmailVerificationTokens", fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("email_verification_tokens")
+  referralCodeSnapshot String?
 }
 
 model PasswordResetToken {

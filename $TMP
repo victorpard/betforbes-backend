@@ -1,0 +1,7 @@
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=$SMTP_USER
+SMTP_PASS=$SMTP_PASS
+EMAIL_FROM=BetForbes <$SMTP_USER>
+APP_URL=https://www.betforbes.com

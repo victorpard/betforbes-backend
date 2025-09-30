@@ -39,7 +39,7 @@ async function generateUniqueCode(): Promise<string> {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const exists = await prisma.user.findUnique({
       where: { referralCode: code },
-      select: {  id: true , referralCode: true },
+      select: {  id: true , isVerified: true },
     });
     if (!exists) return code;
   }
@@ -50,7 +50,7 @@ async function generateUniqueCode(): Promise<string> {
 async function ensureReferralCode(userId: string): Promise<string> {
   const u = await prisma.user.findUnique({
     where: { id: userId },
-    select: {  referralCode: true  },
+    select: {  referralCode: true , isVerified: true },
   });
   if (u?.referralCode) return u.referralCode;
 
@@ -72,7 +72,7 @@ class AffiliateService {
     // Verifica usuário
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: {  id: true, referralCode: true  },
+      select: {  id: true, referralCode: true , isVerified: true },
     });
     if (!user) {
       throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
@@ -91,7 +91,7 @@ class AffiliateService {
     // Unicidade do código entre usuários
     const dup = await prisma.user.findUnique({
       where: { referralCode: normalized },
-      select: {  id: true  },
+      select: {  id: true , isVerified: true },
     });
     if (dup) {
       throw createError('Código de afiliado já está em uso', 400, 'CODE_ALREADY_EXISTS');
@@ -168,7 +168,7 @@ class AffiliateService {
         select: {
           id: true,
           name: true,
-          isVerified: true, email: true,
+          email: true,
           
           createdAt: true,
         },

@@ -38,7 +38,7 @@ async function generateUniqueReferralCode(): Promise<string> {
       const code = randomCode(len);
       const exists = await prisma.user.findFirst({
         where: { referralCode: code },
-        select: {  id: true , referralCode: true },
+        select: {  id: true , isVerified: true },
       });
       if (!exists) return code;
     }
@@ -54,7 +54,7 @@ async function generateUniqueReferralCode(): Promise<string> {
 async function ensureReferralCode(userId: string): Promise<string> {
   const found = await prisma.user.findUnique({
     where: { id: userId },
-    select: {  referralCode: true  },
+    select: {  referralCode: true , isVerified: true },
   });
 
   if (!found) {
@@ -147,7 +147,7 @@ class AffiliateService {
         select: {
           id: true,
           name: true,
-          isVerified: true, email: true,
+          email: true,
           
           createdAt: true,
         },

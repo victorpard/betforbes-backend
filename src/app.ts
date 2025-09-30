@@ -1,16 +1,21 @@
-import opsRouter from './routes/ops.route';
+import profileAdapter from './patch/profileAdapter';
+import userRoutes from './modules/users/user.routes';
+import healthRouter from './routes/health.routes';
+// src/app.ts
 import express, { Request, Response, NextFunction } from 'express';
-import metricsTestRoutes from "./routes/metricsTestRoutes";
 import cors, { type CorsOptions } from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 
+import opsRouter from './routes/ops.route';
+import metricsTestRoutes from './routes/metricsTestRoutes';
 import debugRouter from './routes/debug.routes';
 import apiRouter from './routes';
 
-import { microcache } from './middlewares/microcache';
 import { requireAuth } from './middlewares/requireAuth';
+/** Healthchecks completos (inclui /health, /healthz, /api/health, /api/healthz) */
+
 import { errorHandler } from './middlewares/errorHandler';
 import { rateLimiter } from './middlewares/rateLimiter';
 import { referralCookie } from './middlewares/referralCookie';
@@ -20,7 +25,14 @@ import { idemMiddleware } from './middlewares/idempotency';
 import ordersRouter from './modules/orders/orders.router';
 import { affiliateMetricsRouter } from './modules/affiliate/metrics.module';
 
+import prisma from './lib/prisma';
+
 const app = express();
+app.use('/api', profileAdapter);
+app.use('/api/auth', userRoutes);
+/** Healthchecks completos (inclui /health, /healthz, /api/health, /api/healthz) */
+app.use('/', healthRouter);
+app.use('/api', healthRouter);
 
 /** Não expor X-Powered-By */
 app.disable('x-powered-by');
@@ -74,7 +86,8 @@ const corsOptions: CorsOptions = {
     'Authorization',
     'X-Requested-With',
     'Idempotency-Key',
-    'X-Dry-Run','X-OPS-TOKEN',
+    'X-Dry-Run',
+    'X-OPS-TOKEN',
   ],
   exposedHeaders: [
     'ETag',
@@ -106,11 +119,13 @@ app.all('/r/:code', (req: Request, res: Response) => {
   const raw = String(req.params.code || '').trim();
   const code = raw.toUpperCase();
 
-  res.cookie('bf_ref', code, {
+  // 🔧 Ajuste necessário: alinhar o nome do cookie com os handlers (referral_code)
+  res.cookie('referral_code', code, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
     maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
+    path: '/',
   });
 
   const frontend = (process.env.FRONTEND_URL || 'https://www.betforbes.com').replace(/\/+$/, '');
@@ -135,9 +150,44 @@ morgan.token('idem', (_req, res) => String(res.getHeader('Idempotency-Status') |
 morgan.token('rid', (_req, res) => String(res.getHeader('Request-Id') || ''));
 app.use(morgan(':method :url :status :res[content-length] - :response-time ms rid=:rid idem=:idem'));
 
-/** Healthchecks (isentos de rate limit) */
-app.get('/healthz', (_req: Request, res: Response) => res.json({ ok: true }));
-app.get('/api/healthz', (_req: Request, res: Response) => res.json({ ok: true }));
+/** Healthchecks (isentos de rate limit) — GET e HEAD; com ping no DB */
+async function healthHandler(_req: Request, res: Response) {
+  const t0 = process.hrtime.bigint();
+  let db = 'unknown';
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    db = 'ok';
+  } catch {
+    db = 'down';
+  }
+  const dbMs = Number((process.hrtime.bigint() - t0) / BigInt(1_000_000));
+  const ok = db === 'ok';
+
+  if (_req.method === 'HEAD') {
+    return res.status(ok ? 200 : 503).end();
+  }
+
+  return res.status(ok ? 200 : 503).json({
+    success: ok,
+    message: ok ? 'ok' : 'db down',
+    data: {
+      service: 'betforbes-backend',
+      version: process.env.APP_VERSION || 'unknown',
+      now: new Date().toISOString(),
+      uptimeSec: Math.round(process.uptime()),
+      db,
+    },
+    perf: { dbMs },
+  });
+}
+app.get('/health', healthHandler);
+app.head('/health', healthHandler);
+app.get('/healthz', healthHandler);
+app.head('/healthz', healthHandler);
+app.get('/api/health', healthHandler);
+app.head('/api/health', healthHandler);
+app.get('/api/healthz', healthHandler);
+app.head('/api/healthz', healthHandler);
 
 /**
  * Endpoints de debug — montar ANTES de rateLimiter/apiRouter.
@@ -165,7 +215,7 @@ app.use('/api/orders', ordersRouter);
 app.use('/api/affiliate', requireAuth, affiliateMetricsRouter);
 
 /** Rotas de métricas de teste */
-app.use("/api", metricsTestRoutes);
+app.use('/api', metricsTestRoutes);
 
 /** Ops e API */
 app.use('/api/ops', opsRouter);

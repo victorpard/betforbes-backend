@@ -1,42 +1,18 @@
-// /opt/betforbes/backend/ecosystem.config.js
 module.exports = {
   apps: [
     {
-      name: 'betforbes-api',
+      name: 'betforbes-backend',
       script: 'dist/server.js',
-      exec_mode: 'cluster',
-      instances: 'max',
-      max_memory_restart: '512M',
-      exp_backoff_restart_delay: 200,
-      time: true,
-
-      // Defaults (dev/sem --env)
+      cwd: '/opt/betforbes/backend',
       env: {
         NODE_ENV: 'production',
-        PORT: '3000',
-        FRONTEND_URL: 'https://betforbes.com',
-        ALLOWED_ORIGINS: 'https://betforbes.com,https://www.betforbes.com,http://localhost:5173',
-        TRUST_PROXY: '2',
-        RATE_LIMIT_WINDOW: '60',
-        RATE_LIMIT_MAX: '25000',
-        REDIS_URL: 'redis://127.0.0.1:6379/0',
-
-        // (fallback dev) NÃO usado em produção
-        DATABASE_URL: 'postgresql://bf_app:SENHA_APP_FORTE@127.0.0.1:5432/betforbes?schema=public&connection_limit=10&pool_timeout=5',
-
-        JWT_SECRET: 'mude_isto',
-        JWT_EXPIRES_IN: '7d',
-        JWT_REFRESH_SECRET: 'mude_isto_tb',
-        JWT_REFRESH_EXPIRES_IN: '30d',
-      },
-
-      // Produção (usado com --env production)
-      env_production: {
-        NODE_ENV: 'production',
-        PORT: '3000',
-        TRUST_PROXY: '2',
-        DATABASE_URL: 'postgresql://bf_app:SENHA_APP_FORTE@127.0.0.1:5432/betforbes?schema=public&connection_limit=10&pool_timeout=5',
-      },
-    },
-  ],
-};
+        PORT: 3000,
+        // Segredos efetivos (persistentes)
+        JWT_SECRET: '239bb6908b9e1cd17b6ae79974051aadea6f6e01e99e5a401a358f19a9f6b30f',
+        JWT_REFRESH_SECRET: '033372735086a490e163ccec493da0e085603a66064e62e80d9ee85439457ac5',
+        ACCESS_TOKEN_EXPIRES_IN: '1h',
+        REFRESH_TOKEN_EXPIRES_IN: '7d'
+      }
+    }
+  ]
+}
