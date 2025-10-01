@@ -164,3 +164,19 @@ enum ConfigType {
   BOOLEAN
   JSON
 }
+
+// --- [Observabilidade Funil] ---
+// Eventos do funil: cadastro -> verificação -> vínculo de afiliado
+model FunnelEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  email       String?
+  affiliateId String?   // quem indicou (se aplicável)
+  kind        String    // signup_created | email_verified | ref_linked
+  origin      String?   // 'cookie' | 'code' (quando kind=ref_linked)
+  meta        Json?
+  createdAt   DateTime  @default(now())
+
+  @@index([kind, createdAt])
+  @@index([userId, createdAt])
+}
