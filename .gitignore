@@ -13,3 +13,17 @@ yarn-error.log*
 .idea/
 .vscode/
 prisma/*.db
+
+# === ops / artefatos locais ===
+affiliates_*.csv
+*.csv
+*.bak*
+*.BROKEN*
+*.fixbak*
+*.repair*
+*.repairbak*
+*.bkp.*
+*.bak.*
+= 
+=...
+^C
