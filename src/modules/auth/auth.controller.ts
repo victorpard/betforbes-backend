@@ -1,3 +1,4 @@
+import { track } from '../../services/funnel.service';
 import prisma from '../../lib/prisma';
 import { signWithJti } from '../../lib/signWithJti';
 import { randomUUID } from 'crypto';
@@ -100,6 +101,7 @@ router.post(
     if (effectiveReferralCode) data.referralCode = effectiveReferralCode;
 
     const result: any = await authService.register(data);
+    if (result?.user?.id) { await track('signup_created', { userId: result.user.id, email: result.user.email }); }
 
     logger.info(
       `📝 Registro: ${email} (IP ${ipAddress})` +
