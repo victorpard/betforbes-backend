@@ -3,7 +3,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { opsAuth } from '../middleware/opsAuth';
 import funnelRoutes from './ops.funnel.route';
 import opsMetricsRoutes from './ops.metrics.route';
-import { prisma } from '../lib/prisma';
+import prisma from '../lib/prisma';
+import { microcache } from '../middlewares/microcache';
 
 const router = Router();
 
@@ -12,9 +13,8 @@ router.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true, scope: 'ops', ts: new Date().toISOString() });
 });
 
-// Exige X-OPS-Token e monta as rotas de funil (somente leitura)
+// Exige X-OPS-Token e monta as rotas de funil/métricas (somente leitura)
 router.use(opsAuth, funnelRoutes);
-router.use(opsAuth, opsMetricsRoutes);
 router.use(opsAuth, opsMetricsRoutes);
 
 // ---- Lazy require de CSV (à prova de boot) ----
@@ -23,7 +23,6 @@ function ensureCsvLib() {
   if (!stringifyCsv) {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require('csv-stringify/sync');
-    // o pacote expõe "stringify" como named export; caímos para default/mod por segurança
     stringifyCsv = (mod.stringify ?? mod.default ?? mod) as (rows: any[], opts: any) => string;
   }
 }
@@ -53,7 +52,7 @@ function parseRange(range: string) {
 //   - GET /api/ops/affiliates/report?range=30d[&tz=America/Sao_Paulo][&origin=cookie|code][&verified=true|false][&format=csv|json]
 router.get(
   ['/affiliates/report.csv', '/affiliates/report'],
-  opsAuth,
+  opsAuth, microcache({ ttlMs: 60000, key: (req: Request) => `ops:affiliates:report:` }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const range = String(req.query.range || '30d');
@@ -72,8 +71,6 @@ router.get(
 
       const { start, end } = parseRange(range);
 
-      // Consulta com filtros opcionais:
-      // $1=start, $2=end, $3=tz, $4=originFilter, $5=verifiedFilter
       const rows = await prisma.$queryRawUnsafe<any[]>(
         `
         WITH ref_events AS (
@@ -225,18 +222,12 @@ function injectAuthContext(req: any, res: any) {
   };
 }
 
-// Injeta Prisma singleton no req (evita travar abrindo clientes novos)
+// Injeta Prisma singleton no req (evita criar clientes novos)
 function injectPrisma(req: any) {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { PrismaClient } = require('@prisma/client');
-  const g: any = global as any;
-  if (!g.__ops_prisma) g.__ops_prisma = new PrismaClient();
-  (req as any).prisma = g.__ops_prisma;
+  (req as any).prisma = prisma;
 }
 
-router.get(
-  '/metrics/summary',
-  opsAuth,
+router.get('/metrics/summary', opsAuth, microcache({ ttlMs: 3000, key: (req: Request) => `ops:metrics:summary:` }),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       if (!req.query.range) req.query.range = '30d';
@@ -291,7 +282,7 @@ router.get(
 
 // --- ALERTAS DE MÉTRICAS (simples) ---
 // Ex.: GET /api/ops/metrics/alerts?range=24h&min_signup_verify=0.3&min_verified_linked=0.8&min_volume=20
-router.get('/metrics/alerts', opsAuth, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/metrics/alerts', opsAuth, microcache({ ttlMs: 3000, key: (req: Request) => `ops:metrics:alerts:` }), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const range = String(req.query.range || '24h');
     const { start, end } = parseRange(range);
