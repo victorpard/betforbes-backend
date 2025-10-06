@@ -1,17 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 
-declare global {
-  var __prisma: PrismaClient | undefined;
+const url = process.env.DATABASE_URL;
+
+if (!url) {
+  // falha rápida e clara se faltar variável
+  // eslint-disable-next-line no-console
+  console.error('FATAL: DATABASE_URL não definido. Verifique o .env e o processo de start.');
+  process.exit(1);
 }
 
-// Singleton pattern para Prisma Client
-const prisma = globalThis.__prisma || new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+export const prisma = new PrismaClient({
+  datasources: { db: { url } },
+  log: process.env.LOG_LEVEL === 'debug'
+    ? ['query', 'info', 'warn', 'error']
+    : ['warn', 'error'],
 });
 
-if (process.env.NODE_ENV !== 'production') {
-  globalThis.__prisma = prisma;
-}
-
 export default prisma;
-

@@ -1,13 +1,35 @@
 name: CI
+
 on:
+  push:
+    branches: [ main, develop, feature/**, ops/** ]
   pull_request:
-    branches: [ main ]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: '20' }
-      - run: npm ci
-      - run: npm run build
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck (prefer tsconfig.ci.json)
+        run: |
+          if [ -f tsconfig.ci.json ]; then
+            npx tsc -p tsconfig.ci.json
+          else
+            npx tsc
+          fi
+
+      - name: Run tests (if present)
+        run: npm test --if-present

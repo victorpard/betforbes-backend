@@ -1,265 +1,243 @@
-import nodemailer from 'nodemailer';
-import logger from './logger';
+import nodemailer, { Transporter } from 'nodemailer';
 
-export interface EmailOptions {
+type SendParams = {
   to: string;
   subject: string;
   html: string;
   text?: string;
-}
-
-const parseBool = (val: unknown, def = false): boolean => {
-  const s = String(val ?? '').trim().toLowerCase();
-  if (['true', '1', 'yes', 'on'].includes(s)) return true;
-  if (['false', '0', 'no', 'off'].includes(s)) return false;
-  return def;
 };
 
-/** Base do frontend usada nos links de e-mail */
-function getFrontendBase(): string {
-  const DEFAULT_FRONT =
-    process.env.NODE_ENV === 'production'
-      ? 'https://www.betforbes.com'
-      : 'http://localhost:5173';
+type VerifyExtra = {
+  code?: string; // referralCode do referenciador (opcional)
+};
 
-  // remove barras no final para evitar //verify-email
-  const base = (process.env.FRONTEND_URL || DEFAULT_FRONT).replace(/\/+$/, '');
-  return base;
+const {
+  SMTP_HOST = 'smtp.gmail.com',
+  SMTP_PORT = '587',
+  SMTP_SECURE = 'false',
+  SMTP_USER,
+  SMTP_PASS,
+  EMAIL_FROM = SMTP_USER || 'noreply@example.com',
+  FRONTEND_URL = 'https://www.betforbes.com',
+} = process.env;
+
+let transporter: Transporter | null = null;
+
+function bool(v: string | undefined): boolean {
+  return String(v).toLowerCase() === 'true';
 }
 
-/** HTML do email de verificação (sem template string) */
-function buildVerificationEmailHtml(name: string, url: string): string {
-  return [
-    '<!DOCTYPE html>',
-    '<html>',
-    '<head>',
-    '  <meta charset="utf-8">',
-    '  <title>Verificação de Email - BetForbes</title>',
-    '  <style>',
-    '    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }',
-    '    .container { max-width: 600px; margin: 0 auto; padding: 20px; }',
-    '    .header { background: #1e1e1e; color: #FFD700; padding: 20px; text-align: center; }',
-    '    .content { background: #f9f9f9; padding: 30px; }',
-    '    .button { display: inline-block; background: #FFD700; color: #000; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; }',
-    '    .footer { background: #333; color: #fff; padding: 20px; text-align: center; font-size: 12px; }',
-    '  </style>',
-    '</head>',
-    '<body>',
-    '  <div class="container">',
-    '    <div class="header"><h1>BetForbes</h1></div>',
-    '    <div class="content">',
-    '      <h2>Olá, ' + name + '!</h2>',
-    '      <p>Bem-vindo ao BetForbes! Para completar seu cadastro, precisamos verificar seu endereço de email.</p>',
-    '      <p>Clique no botão abaixo para verificar sua conta:</p>',
-    '      <p style="text-align:center; margin:30px 0;">',
-    '        <a href="' + url + '" class="button">Verificar Email</a>',
-    '      </p>',
-    '      <p>Ou copie e cole este link no seu navegador:</p>',
-    '      <p style="word-break:break-all; background:#eee; padding:10px; border-radius:3px;">' + url + '</p>',
-    '      <p><strong>Este link expira em 24 horas.</strong></p>',
-    '      <p>Se você não criou uma conta no BetForbes, pode ignorar este email.</p>',
-    '    </div>',
-    '    <div class="footer">&copy; 2024 BetForbes. Todos os direitos reservados.</div>',
-    '  </div>',
-    '</body>',
-    '</html>',
-  ].join('\n');
+function baseUrl(): string {
+  return (FRONTEND_URL || 'https://www.betforbes.com').replace(/\/+$/, '');
 }
 
-function buildVerificationEmailText(name: string, url: string): string {
-  return [
-    'Olá, ' + name + '!',
-    '',
-    'Bem-vindo ao BetForbes! Para completar seu cadastro, acesse o link abaixo:',
-    url,
-    '',
-    'Este link expira em 24 horas.',
-    '',
-    'Se você não criou uma conta no BetForbes, pode ignorar este email.',
-  ].join('\n');
+function addQueryParam(url: string, key: string, value: string): string {
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
-/** HTML do email de reset de senha (sem template string) */
-function buildResetEmailHtml(name: string, url: string): string {
-  return [
-    '<!DOCTYPE html>',
-    '<html>',
-    '<head>',
-    '  <meta charset="utf-8">',
-    '  <title>Recuperação de Senha - BetForbes</title>',
-    '  <style>',
-    '    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }',
-    '    .container { max-width: 600px; margin: 0 auto; padding: 20px; }',
-    '    .header { background: #1e1e1e; color: #FFD700; padding: 20px; text-align: center; }',
-    '    .content { background: #f9f9f9; padding: 30px; }',
-    '    .button { display: inline-block; background: #FFD700; color: #000; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; }',
-    '    .footer { background: #333; color: #fff; padding: 20px; text-align: center; font-size: 12px; }',
-    '    .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 5px; margin: 20px 0; }',
-    '  </style>',
-    '</head>',
-    '<body>',
-    '  <div class="container">',
-    '    <div class="header"><h1>BetForbes</h1></div>',
-    '    <div class="content">',
-    '      <h2>Olá, ' + name + '!</h2>',
-    '      <p>Recebemos uma solicitação para redefinir a senha da sua conta no BetForbes.</p>',
-    '      <div class="warning">',
-    '        <strong>Importante:</strong> Se você não solicitou esta alteração, ignore este email. Sua senha permanecerá inalterada.',
-    '      </div>',
-    '      <p>Para redefinir sua senha, clique no botão abaixo:</p>',
-    '      <p style="text-align:center; margin:30px 0;">',
-    '        <a href="' + url + '" class="button">Redefinir Senha</a>',
-    '      </p>',
-    '      <p>Ou copie e cole este link no seu navegador:</p>',
-    '      <p style="word-break:break-all; background:#eee; padding:10px; border-radius:3px;">' + url + '</p>',
-    '      <p><strong>Este link expira em 1 hora por segurança.</strong></p>',
-    '    </div>',
-    '    <div class="footer">&copy; 2024 BetForbes. Todos os direitos reservados.</div>',
-    '  </div>',
-    '</body>',
-    '</html>',
-  ].join('\n');
+function tokenToVerifyLink(token: string, extra?: VerifyExtra): string {
+  let link = `${baseUrl()}/verify-email?token=${encodeURIComponent(token)}`;
+  if (extra?.code) link = addQueryParam(link, 'code', extra.code);
+  return link;
 }
 
-function buildResetEmailText(name: string, url: string): string {
-  return [
-    'Olá, ' + name + '!',
-    '',
-    'Recebemos uma solicitação para redefinir a senha da sua conta no BetForbes.',
-    '',
-    'Para redefinir sua senha, acesse o link abaixo:',
-    url,
-    '',
-    'Este link expira em 1 hora por segurança.',
-    '',
-    'Se você não solicitou esta alteração, ignore este email.',
-  ].join('\n');
+function tokenToResetLink(token: string): string {
+  return `${baseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
-class EmailService {
-  private transporter?: nodemailer.Transporter;
-  private isConfigured = false;
-  private emailEnabled = parseBool(process.env.EMAIL_ENABLED, true);
+function ensureTransport(): Transporter {
+  if (transporter) return transporter;
 
-  constructor() {
-    this.setupTransporter();
-  }
+  transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT),
+    secure: bool(SMTP_SECURE), // true=465, false=587
+    auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined,
+  });
 
-  private setupTransporter() {
-    if (!this.emailEnabled) {
-      this.isConfigured = false;
-      logger.warn('EMAIL_ENABLED=false — serviço de email desativado; nenhum email será enviado');
-      return;
-    }
+  // Não derruba a app se falhar; apenas loga
+  transporter.verify().then(
+    () => console.info('info: Serviço de email configurado com sucesso'),
+    (err) => console.warn('warn: Falha ao verificar serviço de email:', err?.message || err)
+  );
 
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    const secure = parseBool(process.env.SMTP_SECURE, port === 465); // 465 => TLS
-    const user = process.env.SMTP_USER;
-    const pass = process.env.SMTP_PASS;
+  return transporter;
+}
 
-    this.isConfigured = Boolean(host && user && pass);
-    if (!this.isConfigured) {
-      logger.warn('Serviço de email não configurado (verifique SMTP_HOST/USER/PASS) — emails não serão enviados');
-      return;
-    }
+export async function sendMail({ to, subject, html, text }: SendParams): Promise<void> {
+  const tx = ensureTransport();
+  await tx.sendMail({
+    from: EMAIL_FROM,
+    to,
+    subject,
+    text: text || stripHtml(html),
+    html,
+  });
+}
 
-    try {
-      this.transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: { user, pass },
-      });
-      logger.info('Serviço de email configurado com sucesso');
-    } catch (error) {
-      logger.error('Erro ao configurar serviço de email:', error);
-      this.isConfigured = false;
-    }
-  }
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
-  async sendEmail(options: EmailOptions): Promise<boolean> {
-    if (!this.emailEnabled) {
-      logger.warn('EMAIL_ENABLED=false — pulando envio', {
-        to: options.to,
-        subject: options.subject,
-      });
-      return true;
-    }
-    if (!this.isConfigured || !this.transporter) {
-      logger.warn('Email não enviado (serviço não configurado)', {
-        to: options.to,
-        subject: options.subject,
-      });
-      return false;
-    }
+/* =========================
+ * TEMPLATES
+ * ========================= */
 
-    const from =
-      process.env.MAIL_FROM ||
-      process.env.EMAIL_FROM ||
-      'BetForbes <noreply@betforbes.com>';
+export function buildVerificationEmailHtml(link: string): string {
+  return `
+<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="UTF-8"><title>Verifique seu email</title></head>
+  <body style="font-family:Arial,Helvetica,sans-serif;background:#fafafa;padding:24px;color:#222;">
+    <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:10px;padding:24px;">
+      <h2 style="margin:0 0 12px 0;">Confirmar endereço de email</h2>
+      <p>Olá! Clique no botão abaixo para confirmar seu endereço de email e ativar sua conta.</p>
+      <p style="margin:24px 0;">
+        <a href="${link}" style="display:inline-block;padding:12px 18px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:bold">
+          Confirmar email
+        </a>
+      </p>
+      <p>Se o botão não funcionar, copie e cole este link no navegador:</p>
+      <p style="word-break:break-all;"><a href="${link}">${link}</a></p>
+      <p><strong>Este link expira em 1 hora por segurança.</strong></p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+      <p style="font-size:12px;color:#666;">Se você não solicitou este cadastro, ignore esta mensagem.</p>
+    </div>
+  </body>
+</html>
+`.trim();
+}
 
-    try {
-      const info = await this.transporter.sendMail({
-        from,
-        to: options.to,
-        subject: options.subject,
-        html: options.html,
-        text: options.text,
-      });
+export function buildResetPasswordEmailHtml(link: string): string {
+  return `
+<!doctype html>
+<html lang="pt-BR">
+  <head><meta charset="UTF-8"><title>Redefinição de senha</title></head>
+  <body style="font-family:Arial,Helvetica,sans-serif;background:#fafafa;padding:24px;color:#222;">
+    <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #eee;border-radius:10px;padding:24px;">
+      <h2 style="margin:0 0 12px 0;">Redefinir sua senha</h2>
+      <p>Recebemos um pedido para redefinir sua senha. Clique no botão abaixo:</p>
+      <p style="margin:24px 0;">
+        <a href="${link}" style="display:inline-block;padding:12px 18px;border-radius:8px;background:#0d6efd;color:#fff;text-decoration:none;font-weight:bold">
+          Redefinir senha
+        </a>
+      </p>
+      <p>Se você não solicitou, ignore este email.</p>
+      <p style="word-break:break-all;"><a href="${link}">${link}</a></p>
+      <p><strong>O link expira em 1 hora por segurança.</strong></p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0;">
+      <p style="font-size:12px;color:#666;">Proteja sua conta e não compartilhe este link.</p>
+    </div>
+  </body>
+</html>
+`.trim();
+}
 
-      logger.info('Email enviado com sucesso', {
-        to: options.to,
-        subject: options.subject,
-        messageId: (info as any)?.messageId,
-        response: (info as any)?.response,
-      });
-      return true;
-    } catch (error) {
-      logger.error('Erro ao enviar email', {
-        to: options.to,
-        subject: options.subject,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
+/* =========================
+ * OVERLOADS COMPATÍVEIS
+ * ========================= */
+
+/**
+ * sendVerificationEmail:
+ *  - Forma nova: sendVerificationEmail(to, link)
+ *  - Legado:     sendVerificationEmail(to, subject, linkOuTokenOuHtml)
+ *  - Novo extra: sendVerificationEmail(to, subject, linkOuTokenOuHtml, { code })  -> anexa &code=<ref>
+ */
+export function sendVerificationEmail(to: string, link: string): Promise<boolean>;
+export function sendVerificationEmail(to: string, subject: string, linkOrTokenOrHtml: string): Promise<boolean>;
+export function sendVerificationEmail(
+  to: string,
+  subject: string,
+  linkOrTokenOrHtml: string,
+  extra: VerifyExtra | null
+): Promise<boolean>;
+export async function sendVerificationEmail(
+  to: string,
+  a: string,
+  b?: string,
+  extra?: VerifyExtra | null
+): Promise<boolean> {
+  const DEFAULT_SUBJECT = 'Confirme seu email — BetForbes';
+  let subject: string;
+  let html: string;
+
+  if (b === undefined) {
+    // Nova assinatura: (to, link)
+    subject = DEFAULT_SUBJECT;
+    html = buildVerificationEmailHtml(a);
+  } else {
+    // Legado/compat + suporte a { code }
+    const hasExtra = extra && typeof extra === 'object' && !!extra.code;
+
+    // Se o caller passou "a" como "nome" (caso legado), preferimos um subject padrão.
+    subject = hasExtra ? DEFAULT_SUBJECT : (a || DEFAULT_SUBJECT);
+
+    if (/^https?:\/\//i.test(b)) {
+      const finalLink = hasExtra ? addQueryParam(b, 'code', String(extra!.code)) : b;
+      html = buildVerificationEmailHtml(finalLink);
+    } else if (b.startsWith('<!doctype') || b.includes('<html')) {
+      html = b; // já é HTML completo
+    } else {
+      // token puro
+      const link = tokenToVerifyLink(b, extra || undefined);
+      html = buildVerificationEmailHtml(link);
     }
   }
 
-  async sendVerificationEmail(email: string, name: string, token: string): Promise<boolean> {
-    const base = getFrontendBase();
-    const verificationUrl = base + '/verify-email?token=' + encodeURIComponent(token);
-    logger.info('Link de verificação gerado', { base, verificationUrl });
-
-    const html = buildVerificationEmailHtml(name, verificationUrl);
-    const text = buildVerificationEmailText(name, verificationUrl);
-
-    return this.sendEmail({
-      to: email,
-      subject: 'Verificação de Email - BetForbes',
-      html,
-      text,
-    });
-  }
-
-  async sendPasswordResetEmail(email: string, name: string, token: string): Promise<boolean> {
-    const base = getFrontendBase();
-    const resetUrl = base + '/reset-password?token=' + encodeURIComponent(token);
-    logger.info('Link de reset de senha gerado', { base, resetUrl });
-
-    const html = buildResetEmailHtml(name, resetUrl);
-    const text = buildResetEmailText(name, resetUrl);
-
-    return this.sendEmail({
-      to: email,
-      subject: 'Recuperação de Senha - BetForbes',
-      html,
-      text,
-    });
-  }
-
-  isReady(): boolean {
-    return this.emailEnabled && this.isConfigured;
+  try {
+    await sendMail({ to, subject, html });
+    return true;
+  } catch (err: any) {
+    console.warn('warn: Falha ao enviar email de verificação:', err?.message || err);
+    return false;
   }
 }
 
-export default new EmailService();
+/**
+ * sendPasswordResetEmail:
+ *  - Forma nova: sendPasswordResetEmail(to, link)
+ *  - Compatível: sendPasswordResetEmail(to, subject, linkOuTokenOuHtml)
+ */
+export function sendPasswordResetEmail(to: string, link: string): Promise<boolean>;
+export function sendPasswordResetEmail(to: string, subject: string, linkOrTokenOrHtml: string): Promise<boolean>;
+export async function sendPasswordResetEmail(to: string, a: string, b?: string): Promise<boolean> {
+  const DEFAULT_SUBJECT = 'Redefinir senha — BetForbes';
+  let subject: string;
+  let html: string;
+
+  if (b === undefined) {
+    subject = DEFAULT_SUBJECT;
+    html = buildResetPasswordEmailHtml(a);
+  } else {
+    subject = a || DEFAULT_SUBJECT;
+    if (/^https?:\/\//i.test(b)) {
+      html = buildResetPasswordEmailHtml(b);
+    } else if (b.startsWith('<!doctype') || b.includes('<html')) {
+      html = b;
+    } else {
+      html = buildResetPasswordEmailHtml(tokenToResetLink(b));
+    }
+  }
+
+  try {
+    await sendMail({ to, subject, html });
+    return true;
+  } catch (err: any) {
+    console.warn('warn: Falha ao enviar email de reset:', err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * Export default + named (compatível com import default e import nomeado)
+ */
+const email = {
+  sendMail,
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  buildVerificationEmailHtml,
+  buildResetPasswordEmailHtml,
+};
+
+export default email;

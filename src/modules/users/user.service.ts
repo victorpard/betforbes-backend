@@ -27,9 +27,7 @@ class UserService {
         referralCode: true,
         createdAt: true,
         updatedAt: true,
-        lastLoginAt: true,
-      },
-    });
+        lastLoginAt: true}});
 
     if (!user) {
       throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
@@ -37,8 +35,7 @@ class UserService {
 
     return {
       ...user,
-      balance: parseFloat(user.balance.toString()),
-    };
+      balance: parseFloat(user.balance.toString())};
   }
 
   async updateProfile(userId: string, updateData: UpdateProfileData) {
@@ -72,23 +69,19 @@ class UserService {
         referralCode: true,
         createdAt: true,
         updatedAt: true,
-        lastLoginAt: true,
-      },
-    });
+        lastLoginAt: true}});
 
     logger.info(`👤 Perfil atualizado: ${user.email}`);
 
     return {
       ...user,
-      balance: parseFloat(user.balance.toString()),
-    };
+      balance: parseFloat(user.balance.toString())};
   }
 
   async changePassword(userId: string, currentPassword: string, newPassword: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, password: true },
-    });
+      select: { id: true, email: true, password: true }});
 
     if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
@@ -106,13 +99,11 @@ class UserService {
 
     await prisma.user.update({
       where: { id: userId },
-      data: { password: hashedNewPassword },
-    });
+      data: { password: hashedNewPassword }});
 
     await prisma.userSession.updateMany({
       where: { userId },
-      data: { isActive: false },
-    });
+      data: { isActive: false }});
 
     logger.info(`🔑 Senha alterada: ${user.email}`);
 
@@ -124,17 +115,14 @@ class UserService {
       where: {
         userId,
         isActive: true,
-        expiresAt: { gt: new Date() },
-      },
+        expiresAt: { gt: new Date() }},
       select: {
         id: true,
         userAgent: true,
         ipAddress: true,
         createdAt: true,
-        isActive: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        isActive: true},
+      orderBy: { createdAt: 'desc' }});
   }
 
   async revokeSession(userId: string, sessionId: string) {
@@ -142,9 +130,7 @@ class UserService {
       where: {
         id: sessionId,
         userId,
-        isActive: true,
-      },
-    });
+        isActive: true}});
 
     if (!session) {
       throw createError('Sessão não encontrada', 404, 'SESSION_NOT_FOUND');
@@ -152,8 +138,7 @@ class UserService {
 
     await prisma.userSession.update({
       where: { id: sessionId },
-      data: { isActive: false },
-    });
+      data: { isActive: false }});
 
     logger.info(`🔒 Sessão revogada: ${sessionId}`);
 
@@ -163,8 +148,7 @@ class UserService {
   async revokeAllSessions(userId: string, currentToken?: string) {
     const whereClause: any = {
       userId,
-      isActive: true,
-    };
+      isActive: true};
 
     if (currentToken) {
       whereClause.token = { not: currentToken };
@@ -172,8 +156,7 @@ class UserService {
 
     const result = await prisma.userSession.updateMany({
       where: whereClause,
-      data: { isActive: false },
-    });
+      data: { isActive: false }});
 
     logger.info(`🔒 ${result.count} sessões revogadas para usuário: ${userId}`);
 
@@ -183,8 +166,7 @@ class UserService {
   async deleteAccount(userId: string, password: string) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, password: true },
-    });
+      select: { id: true, email: true, password: true }});
 
     if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
@@ -207,9 +189,7 @@ class UserService {
         id: true,
         createdAt: true,
         lastLoginAt: true,
-        balance: true,
-      },
-    });
+        balance: true}});
 
     if (!user) throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
 
@@ -217,9 +197,7 @@ class UserService {
       where: {
         userId,
         isActive: true,
-        expiresAt: { gt: new Date() },
-      },
-    });
+        expiresAt: { gt: new Date() }}});
 
     const daysSinceRegistration = Math.floor(
       (Date.now() - user.createdAt.getTime()) / (1000 * 60 * 60 * 24)
@@ -234,8 +212,7 @@ class UserService {
       totalBets: 0,
       totalWins: 0,
       totalDeposits: 0,
-      totalWithdrawals: 0,
-    };
+      totalWithdrawals: 0};
   }
 
   async canDeleteAccount(userId: string): Promise<{ canDelete: boolean; reasons: string[] }> {
@@ -243,8 +220,7 @@ class UserService {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { balance: true },
-    });
+      select: { balance: true }});
 
     if (user && parseFloat(user.balance.toString()) > 0) {
       reasons.push('Usuário possui saldo em conta');
@@ -252,8 +228,7 @@ class UserService {
 
     return {
       canDelete: reasons.length === 0,
-      reasons,
-    };
+      reasons};
   }
 
   /**
@@ -276,15 +251,7 @@ class UserService {
         referralCode: true,
         createdAt: true,
         updatedAt: true,
-        lastLoginAt: true,
-        referrer: {
-          select: {
-            name: true,
-            email: true,
-          },
-        },
-      },
-    });
+        lastLoginAt: true}});
 
     if (!user) {
       throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
@@ -292,14 +259,7 @@ class UserService {
 
     return {
       ...user,
-      balance: parseFloat(user.balance.toString()),
-      referredBy: user.referrer
-        ? {
-            name: user.referrer.name,
-            email: user.referrer.email,
-          }
-        : null,
-    };
+      balance: parseFloat(user.balance.toString())};
   }
 }
 
