@@ -1,20 +1,25 @@
-import affiliateRoutes from '../modules/affiliates/affiliate.routes';
+import { microcache } from '../middlewares/microcache';
+import { Router, Request, Response } from 'express';
+
 import { authenticateToken } from '../middlewares/auth';
-import { Router } from 'express';
+
 import authRoutes from './auth';
 import marketRoutes from './market.routes';
-// outros imports...
+import healthRoutes from './health.routes'; // <-- público
+import affiliateRoutes from '../modules/affiliates/affiliate.routes'; // <-- protegido
 
 const router = Router();
 
-// prefixa /auth
+// Health checks (público): /api/health e /api/healthz
+router.use('/', healthRoutes);
+
+// Auth (público): /api/auth/*
 router.use('/auth', authRoutes);
 
-// Rotas de afiliado
-router.use('/affiliate', authenticateToken, affiliateRoutes);
-// outras rotas: /market, /users, etc.
+// Market (ajuste conforme necessidade: aqui mantido público)
 router.use('/market', marketRoutes);
-// rota de afiliados
-router.use('/affiliate', affiliateRoutes);
+
+// Afiliados (PROTEGIDO): /api/affiliate/*
+router.use('/affiliate', authenticateToken, affiliateRoutes);
 
 export default router;

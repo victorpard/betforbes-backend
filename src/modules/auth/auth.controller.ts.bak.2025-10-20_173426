@@ -5,7 +5,7 @@ import authService from './auth.service';
 import { asyncHandler } from '../../middlewares/errorHandler';
 import logger from '../../utils/logger';
 import { getClientIP } from '../../utils/helpers';
-import { getReferralFromRequest } from '../../utils/referral';
+import { getReferralFromRequest } from '../../utils/referral'; // <<< usa o helper centralizado
 
 import {
   registerSchema,
@@ -29,11 +29,11 @@ type JwtPayload = {
 
 function getBearerToken(req: Request): string | null {
   const h = req.headers.authorization || '';
-  if (!h || !/^bearer\s+/i.test(h)) return null;
-  return h.replace(/^bearer\s+/i, '').trim();
+  if (!h || !h.toLowerCase().startsWith('bearer ')) return null;
+  return h.slice(7).trim();
 }
 
-function requireSecretBase(): string {
+function requireSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     logger.error('JWT_SECRET não configurado nas variáveis de ambiente.');
@@ -42,25 +42,22 @@ function requireSecretBase(): string {
   return secret;
 }
 
-function getSecret(kind: 'access' | 'refresh'): string {
-  if (kind === 'access') {
-    return process.env.JWT_ACCESS_SECRET || requireSecretBase();
-  }
-  return process.env.JWT_REFRESH_SECRET || requireSecretBase();
-}
-
-function signJwt(payload: object, expiresIn: string, secret: string): string {
+function signJwt(
+  payload: object,
+  envKey: 'JWT_EXPIRES_IN' | 'JWT_REFRESH_EXPIRES_IN',
+  fallback: string
+): string {
+  const secret = requireSecret();
+  const expiresIn = process.env[envKey] ?? fallback;
   return (jwt as any).sign(payload, secret, { expiresIn });
 }
 
 function signAccessToken(payload: { userId: string; email: string; role?: string }): string {
-  const exp = process.env.JWT_EXPIRES_IN ?? '15m';
-  return signJwt(payload, exp, getSecret('access'));
+  return signJwt(payload, 'JWT_EXPIRES_IN', '7d');
 }
 
 function signRefreshToken(payload: { userId: string; email: string; role?: string }): string {
-  const exp = process.env.JWT_REFRESH_EXPIRES_IN ?? '7d';
-  return signJwt(payload, exp, getSecret('refresh'));
+  return signJwt(payload, 'JWT_REFRESH_EXPIRES_IN', '30d');
 }
 
 /**
@@ -83,10 +80,13 @@ router.post(
       confirmPassword?: string;
     };
 
-    // prioridade: body > cookie (bf_ref) > query (?ref=)
-    const effectiveReferralCode = getReferralFromRequest(req);
+    // prioridade centralizada: body > cookie (bf_ref) > query (?ref=)
+    // o helper já normaliza (ignora "", "null", "undefined" e faz .toUpperCase())
+    const effectiveReferralCode = getReferralFromRequest(req); // string | undefined
+
     const ipAddress = getClientIP(req);
 
+    // monta payload para o service; não envia referralCode se undefined
     const data: any = { name, email, password };
     if (effectiveReferralCode) data.referralCode = effectiveReferralCode;
 
@@ -122,10 +122,12 @@ router.post(
 
     const loginRes: any = await authService.login({ email, password });
 
-    // normaliza campos do service
+    // normaliza campos vindos do service
     let accessToken: string | null =
       loginRes?.accessToken ?? loginRes?.token ?? loginRes?.jwt ?? null;
+
     let refreshToken: string | null = loginRes?.refreshToken ?? loginRes?.rt ?? null;
+
     const user = loginRes?.user ?? loginRes?.profile ?? loginRes?.data?.user ?? null;
 
     if (!user || !user.id || !user.email) {
@@ -140,48 +142,27 @@ router.post(
     };
     if (user.role) payload.role = user.role;
 
-    // fallback de tokens
+    // fallback para tokens caso o service não gere
     try {
       if (!accessToken) accessToken = signAccessToken(payload);
       if (!refreshToken) refreshToken = signRefreshToken(payload);
-    } catch (e) {
-      logger.error('Falha ao gerar token (verifique secrets/JWT_*): ' + (e as Error).message);
+    } catch {
       return res
         .status(500)
-        .json({ success: false, message: 'Falha ao gerar token. Verifique JWT secrets.' });
+        .json({ success: false, message: 'Falha ao gerar token. Verifique JWT_SECRET.' });
     }
 
     logger.info(`🔐 Login: ${email} (IP ${ipAddress})`);
 
     return res.json({
       success: true,
-      token: accessToken, // compat antigo
+      token: accessToken, // compat com clientes antigos
       accessToken,
       refreshToken,
       user,
-      data: { tokens: { accessToken, refreshToken } }, // compat novo
+      // compat com clientes que esperam data.tokens.*
+      data: { tokens: { accessToken, refreshToken } },
     });
-  })
-);
-
-/**
- * GET /api/auth/verify?token=...   (legado para link clicável)
- */
-router.get(
-  '/verify',
-  asyncHandler(async (req: Request, res: Response) => {
-    const token = (req.query.token as string) || '';
-    if (!token) return res.status(400).send('Token ausente.');
-    try {
-      await authService.verifyEmail(token);
-      const front = process.env.FRONTEND_URL;
-      if (front) return res.redirect(`${front.replace(/\/+$/, '')}/auth/verified?ok=1`);
-      return res.send('E-mail verificado com sucesso.');
-    } catch {
-      const front = process.env.FRONTEND_URL;
-      if (front) return res.redirect(`${front.replace(/\/+$/, '')}/auth/verified?ok=0`);
-      return res.status(400).send('Falha ao verificar e-mail.');
-    }
   })
 );
 
@@ -213,6 +194,7 @@ router.post(
       const message = vErr.details.map((d) => d.message).join(' ');
       return res.status(400).json({ success: false, message });
     }
+
     const { email } = req.body as { email: string };
     await authService.resendVerification(email);
     return res.json({ success: true, message: 'E-mail de verificação reenviado.' });
@@ -220,26 +202,27 @@ router.post(
 );
 
 /**
- * POST /api/auth/forgot-password  (oficial)
- * POST /api/auth/forgot           (legado/alias)
+ * POST /api/auth/forgot-password
  * body: { email }
  */
-const forgotHandler = asyncHandler(async (req: Request, res: Response) => {
-  const { error: vErr } = forgotPasswordSchema.validate(req.body, { abortEarly: false });
-  if (vErr) {
-    const message = vErr.details.map((d) => d.message).join(' ');
-    return res.status(400).json({ success: false, message });
-  }
-  const { email } = req.body as { email: string };
-  await authService.forgotPassword(email);
-  return res.json({ success: true, message: 'Se o e-mail existir, enviaremos instruções.' });
-});
-router.post('/forgot-password', forgotHandler);
-router.post('/forgot', forgotHandler);
+router.post(
+  '/forgot-password',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { error: vErr } = forgotPasswordSchema.validate(req.body, { abortEarly: false });
+    if (vErr) {
+      const message = vErr.details.map((d) => d.message).join(' ');
+      return res.status(400).json({ success: false, message });
+    }
+
+    const { email } = req.body as { email: string };
+    await authService.forgotPassword(email);
+    return res.json({ success: true, message: 'Se o e-mail existir, enviaremos instruções.' });
+  })
+);
 
 /**
  * POST /api/auth/reset-password
- * body: { token, password, confirmPassword }
+ * body: { token, password }
  */
 router.post(
   '/reset-password',
@@ -249,6 +232,7 @@ router.post(
       const message = vErr.details.map((d) => d.message).join(' ');
       return res.status(400).json({ success: false, message });
     }
+
     const { token, password } = req.body as { token: string; password: string };
     await authService.resetPassword(token, password);
     return res.json({ success: true, message: 'Senha redefinida com sucesso.' });
@@ -267,6 +251,7 @@ router.post(
       const message = vErr.details.map((d) => d.message).join(' ');
       return res.status(400).json({ success: false, message });
     }
+
     const { refreshToken } = req.body as { refreshToken: string };
 
     // tenta via service
@@ -274,10 +259,11 @@ router.post(
     let newAccessToken: string | null = r?.accessToken ?? r?.token ?? r?.jwt ?? null;
     let newRefreshToken: string | null = r?.refreshToken ?? null;
 
-    // fallback local
+    // fallback: se o service não retornar, valida o RT e reemite
     if (!newAccessToken) {
+      const secret = requireSecret();
       try {
-        const decoded = (jwt as any).verify(refreshToken, getSecret('refresh')) as JwtPayload;
+        const decoded = (jwt as any).verify(refreshToken, secret) as JwtPayload;
         const payload: { userId: string; email: string; role?: string } = {
           userId: decoded.userId,
           email: decoded.email,
@@ -292,10 +278,10 @@ router.post(
 
     return res.json({
       success: true,
-      token: newAccessToken,
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-      data: { tokens: { accessToken: newAccessToken, refreshToken: newRefreshToken } },
+      token: newAccessToken,                    // compat antigo
+      accessToken: newAccessToken,              // compat antigo
+      refreshToken: newRefreshToken,            // compat antigo
+      data: { tokens: { accessToken: newAccessToken, refreshToken: newRefreshToken } }, // novo
     });
   })
 );
@@ -312,6 +298,7 @@ router.post(
       const message = vErr.details.map((d) => d.message).join(' ');
       return res.status(400).json({ success: false, message });
     }
+
     const { refreshToken } = req.body as { refreshToken: string };
     await authService.logout(refreshToken);
     return res.json({ success: true, message: 'Logout efetuado.' });
@@ -329,8 +316,11 @@ router.get(
     if (!token) {
       return res.status(401).json({ success: false, message: 'Token ausente.' });
     }
+
+    const secret = requireSecret();
+
     try {
-      const decoded = (jwt as any).verify(token, getSecret('access')) as JwtPayload;
+      const decoded = (jwt as any).verify(token, secret) as JwtPayload;
       return res.json({
         success: true,
         user: {

@@ -1,5 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma
+// Docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -39,24 +39,20 @@ model User {
   lastLoginAt DateTime?
   balance     Decimal   @default(1000) @db.Decimal(18, 8)
 
+  // Afiliados
   referralCode String? @unique
   referredBy   String?
   referrer     User?   @relation("AffiliateRelation", fields: [referredBy], references: [id])
   referrals    User[]  @relation("AffiliateRelation")
 
-  verificationToken String?
-  tokenExpiry       DateTime?
-  emailVerifiedAt   DateTime?
+  // Tokens/relacionamentos corretos
+  emailVerificationTokens EmailVerificationToken[] @relation("UserEmailVerificationTokens")
+  passwordResetTokens     PasswordResetToken[]     @relation("UserPasswordResetTokens")
 
-  passwordResetTokens     EmailVerificationToken[] @relation("UserEmailVerificationTokens")
-  emailVerificationTokens PasswordResetToken[]     @relation("UserPasswordResetTokens")
-  sessions                UserSession[]
-  orders                  Order[]
+  sessions UserSession[]
+  orders   Order[]
 
-  // Adicionando campos de relação ausentes
-  affiliate           Affiliate?           @relation("UserAffiliate")
-  referralConversions ReferralConversion[] @relation("UserReferralConversions")
-
+  @@index([referredBy], map: "idx_users_referred_by")
   @@map("users")
 }
 
@@ -118,34 +114,4 @@ model Order {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("orders")
-}
-
-model Affiliate {
-  id             String   @id @default(uuid())
-  user           User     @relation("UserAffiliate", fields: [userId], references: [id])
-  userId         String   @unique
-  code           String   @unique
-  totalReferrals Int      @default(0)
-  totalEarnings  Float    @default(0.0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  referrals ReferralConversion[] @relation("AffiliateConversions")
-
-  @@map("affiliates")
-}
-
-model ReferralConversion {
-  id           String    @id @default(uuid())
-  affiliate    Affiliate @relation("AffiliateConversions", fields: [affiliateId], references: [id])
-  affiliateId  String
-  referredUser User      @relation("UserReferralConversions", fields: [userId], references: [id])
-  userId       String
-  email        String
-  value        Float
-  createdAt    DateTime  @default(now())
-
-  @@map("referral_conversions")
 }

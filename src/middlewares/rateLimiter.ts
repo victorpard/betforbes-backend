@@ -1,112 +1,47 @@
-import rateLimit, { Options } from 'express-rate-limit';
+// src/middlewares/rateLimiter.ts
 import { Request, Response } from 'express';
-import logger from '../utils/logger';
-import { getClientIP } from '../utils/helpers';
+import rateLimit, { RateLimitRequestHandler } from 'express-rate-limit';
 
-/**
- * Rate limiting geral
- */
-export const generalLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutos
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'), // 100 requests por IP
-  message: {
-    success: false,
-    message: 'Muitas tentativas. Tente novamente em alguns minutos.',
-    code: 'RATE_LIMIT_EXCEEDED',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req: Request) => getClientIP(req),
-  handler: (req: Request, res: Response) => {
-    const ip = getClientIP(req);
-    logger.warn(`🚫 Rate limit excedido para IP: ${ip}`);
+// Lê envs (com defaults seguros)
+const WINDOW_SECONDS = (() => {
+  const n = Number(process.env.RATE_LIMIT_WINDOW ?? 900); // 15min
+  return Number.isFinite(n) && n > 0 ? n : 900;
+})();
 
-    res.status(429).json({
-      success: false,
-      message: 'Muitas tentativas. Tente novamente em alguns minutos.',
-      code: 'RATE_LIMIT_EXCEEDED',
-    });
-  },
-});
+const MAX_REQ = (() => {
+  const n = Number(process.env.RATE_LIMIT_MAX ?? 100);
+  return Number.isFinite(n) && n > 0 ? n : 100;
+})();
 
-/**
- * Rate limiting para autenticação (mais restritivo)
- */
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 5, // 5 tentativas de login por IP
-  message: {
-    success: false,
-    message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
-    code: 'AUTH_RATE_LIMIT_EXCEEDED',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // Não conta requests bem-sucedidos
-  keyGenerator: (req: Request) => getClientIP(req),
-  handler: (req: Request, res: Response) => {
-    const ip = getClientIP(req);
-    logger.warn(`🚫 Rate limit de autenticação excedido para IP: ${ip}`);
+export const rateLimiter: RateLimitRequestHandler = rateLimit({
+  windowMs: WINDOW_SECONDS * 1000,
+  max: MAX_REQ,
+  standardHeaders: true,  // envia RateLimit-*
+  legacyHeaders: false,   // não envia X-RateLimit-*
+  // Gera chave SEM retornar undefined
+  keyGenerator: (req: Request): string =>
+    req.ip ||
+    String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? 'unknown'),
+
+  // Handler tipado corretamente
+  handler: (req: Request, res: Response): void => {
+    const info = (req as any).rateLimit || {};
+    const limit = info.limit ?? MAX_REQ;
+    const remaining = Math.max(0, info.remaining ?? 0);
+    const resetSec = info.resetTime
+      ? Math.max(1, Math.ceil((info.resetTime.getTime() - Date.now()) / 1000))
+      : WINDOW_SECONDS;
+
+    // Cabeçalhos compatíveis com o que você já estava vendo em produção
+    res.setHeader('ratelimit-policy', `${limit};w=${WINDOW_SECONDS}`);
+    res.setHeader('ratelimit-limit', String(limit));
+    res.setHeader('ratelimit-remaining', String(remaining));
+    res.setHeader('ratelimit-reset', String(resetSec));
 
     res.status(429).json({
       success: false,
-      message: 'Muitas tentativas de login. Tente novamente em 15 minutos.',
-      code: 'AUTH_RATE_LIMIT_EXCEEDED',
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Muitas requisições. Tente novamente em instantes.',
     });
   },
 });
-
-/**
- * Rate limiting para recuperação de senha
- */
-export const passwordResetLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hora
-  max: 3, // 3 tentativas por IP
-  message: {
-    success: false,
-    message: 'Muitas solicitações de recuperação de senha. Tente novamente em 1 hora.',
-    code: 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req: Request) => getClientIP(req),
-  handler: (req: Request, res: Response) => {
-    const ip = getClientIP(req);
-    logger.warn(`🚫 Rate limit de recuperação de senha excedido para IP: ${ip}`);
-
-    res.status(429).json({
-      success: false,
-      message: 'Muitas solicitações de recuperação de senha. Tente novamente em 1 hora.',
-      code: 'PASSWORD_RESET_RATE_LIMIT_EXCEEDED',
-    });
-  },
-});
-
-/**
- * Rate limiting para verificação de email
- */
-export const emailVerificationLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000, // 10 minutos
-  max: 3, // 3 tentativas por IP
-  message: {
-    success: false,
-    message: 'Muitas solicitações de verificação de email. Tente novamente em 10 minutos.',
-    code: 'EMAIL_VERIFICATION_RATE_LIMIT_EXCEEDED',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req: Request) => getClientIP(req),
-  handler: (req: Request, res: Response) => {
-    const ip = getClientIP(req);
-    logger.warn(`🚫 Rate limit de verificação de email excedido para IP: ${ip}`);
-
-    res.status(429).json({
-      success: false,
-      message: 'Muitas solicitações de verificação de email. Tente novamente em 10 minutos.',
-      code: 'EMAIL_VERIFICATION_RATE_LIMIT_EXCEEDED',
-    });
-  },
-});
-
-// Export padrão para compatibilidade
-export const rateLimiter = generalLimiter;

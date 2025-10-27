@@ -1,3 +1,4 @@
+// src/modules/affiliate/affiliate.service.ts
 import prisma from '../../lib/prisma';
 import { createError } from '../../middlewares/errorHandler';
 
@@ -10,7 +11,7 @@ export interface AffiliateStats {
 
 export interface ReferralUser {
   id: string;
-  name: string;
+  name: string | null;
   email: string;
   isVerified: boolean;
   createdAt: Date;
@@ -22,189 +23,167 @@ export interface CreateAffiliateResult {
   referralLink: string;
 }
 
+const BASE_URL =
+  process.env.FRONTEND_URL ||
+  process.env.FRONTEND_BASE_URL ||
+  process.env.PUBLIC_URL ||
+  'https://www.betforbes.com';
+
+function buildReferralLink(code: string) {
+  // Padrão em produção: link curto
+  return `${BASE_URL}/r/${code}`;
+}
+
+async function generateUniqueCode(): Promise<string> {
+  for (let i = 0; i < 20; i++) {
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const exists = await prisma.user.findUnique({
+      where: { referralCode: code },
+      select: { id: true },
+    });
+    if (!exists) return code;
+  }
+  // fallback extremamente improvável
+  return `R${Date.now().toString(36).toUpperCase().slice(-6)}`;
+}
+
+async function ensureReferralCode(userId: string): Promise<string> {
+  const u = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { referralCode: true },
+  });
+  if (u?.referralCode) return u.referralCode;
+
+  const code = await generateUniqueCode();
+  await prisma.user.update({
+    where: { id: userId },
+    data: { referralCode: code },
+  });
+  return code;
+}
+
 class AffiliateService {
   /**
-   * Criar perfil de afiliado
+   * Criar perfil de afiliado (compat com versão antiga).
+   * No schema atual não há tabela `affiliate`, então tratamos o "perfil"
+   * como a existência de um `referralCode` único no próprio usuário.
    */
   async createAffiliate(userId: string, code: string): Promise<CreateAffiliateResult> {
-    // Verificar se o usuário existe
+    // Verifica usuário
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true }
+      select: { id: true, referralCode: true },
     });
-
     if (!user) {
       throw createError('Usuário não encontrado', 404, 'USER_NOT_FOUND');
     }
 
-    // Verificar se já existe um afiliado para este usuário
-    const existingAffiliate = await prisma.affiliate.findUnique({
-      where: { userId }
-    });
-
-    if (existingAffiliate) {
+    // Se já tem referralCode, emulamos "já possui perfil de afiliado"
+    if (user.referralCode) {
       throw createError('Usuário já possui perfil de afiliado', 400, 'AFFILIATE_ALREADY_EXISTS');
     }
 
-    // Verificar se o código já está em uso
-    const existingCode = await prisma.affiliate.findUnique({
-      where: { code }
-    });
+    const normalized = (code || '').trim().toUpperCase();
+    if (!normalized || normalized.length < 4) {
+      throw createError('Código de afiliado inválido', 400, 'INVALID_CODE');
+    }
 
-    if (existingCode) {
+    // Unicidade do código entre usuários
+    const dup = await prisma.user.findUnique({
+      where: { referralCode: normalized },
+      select: { id: true },
+    });
+    if (dup) {
       throw createError('Código de afiliado já está em uso', 400, 'CODE_ALREADY_EXISTS');
     }
 
-    // Criar o afiliado
-    const affiliate = await prisma.affiliate.create({
-      data: {
-        userId,
-        code,
-        totalReferrals: 0,
-        totalEarnings: 0
-      }
+    // Seta o código no usuário
+    await prisma.user.update({
+      where: { id: userId },
+      data: { referralCode: normalized },
     });
 
-    // Gerar link de referência
-    const baseUrl = process.env.FRONTEND_URL || 'https://www.betforbes.com';
-    const referralLink = `${baseUrl}/cadastro?ref=${code}`;
-
     return {
-      id: affiliate.id,
-      code: affiliate.code,
-      referralLink
+      id: userId, // antes era affiliate.id; agora usamos o id do usuário
+      code: normalized,
+      referralLink: buildReferralLink(normalized),
     };
   }
 
   /**
-   * Obter link único do usuário
+   * Obter link único do usuário (compat com versão antiga).
+   * Antes tentava `affiliate.code`; agora usamos `users.referralCode`.
    */
   async getReferralLink(userId: string): Promise<{ referralLink: string; referralCode: string }> {
-    // Primeiro tentar buscar pelo afiliado
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { userId },
-      select: { code: true }
-    });
-
-    if (affiliate) {
-      const baseUrl = process.env.FRONTEND_URL || 'https://www.betforbes.com';
-      const referralLink = `${baseUrl}/cadastro?ref=${affiliate.code}`;
-
-      return {
-        referralLink,
-        referralCode: affiliate.code
-      };
-    }
-
-    // Fallback para o referralCode do usuário (compatibilidade)
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { referralCode: true }
-    });
-
-    if (!user || !user.referralCode) {
-      throw createError('Usuário não encontrado ou código de referência não disponível', 404, 'USER_NOT_FOUND');
-    }
-
-    const baseUrl = process.env.FRONTEND_URL || 'https://www.betforbes.com';
-    const referralLink = `${baseUrl}/cadastro?ref=${user.referralCode}`;
-
+    const code = await ensureReferralCode(userId);
     return {
-      referralLink,
-      referralCode: user.referralCode
+      referralLink: buildReferralLink(code),
+      referralCode: code,
     };
   }
 
   /**
-   * Obter estatísticas de afiliados
+   * Estatísticas do afiliado (compatível com shape antigo).
+   * totalReferrals: count de users.referredBy = userId
+   * activeReferrals: count dos verificados
+   * totalEarnings: mantemos mesma lógica vista (10 por ativo)
    */
   async getAffiliateStats(userId: string): Promise<AffiliateStats> {
-    // Buscar afiliado
-    const affiliate = await prisma.affiliate.findUnique({
-      where: { userId },
-      select: { 
-        code: true,
-        totalReferrals: true,
-        totalEarnings: true
-      }
-    });
+    const code = await ensureReferralCode(userId);
 
-    if (!affiliate) {
-      throw createError('Perfil de afiliado não encontrado', 404, 'AFFILIATE_NOT_FOUND');
-    }
+    const [totalReferrals, activeReferrals] = await Promise.all([
+      prisma.user.count({ where: { referredBy: userId } }),
+      prisma.user.count({ where: { referredBy: userId, isVerified: true } }),
+    ]);
 
-    // Contar total de referrals (usando a tabela ReferralConversion)
-    const totalReferrals = await prisma.referralConversion.count({
-      where: { affiliateId: userId }
-    });
-
-    // Contar referrals ativos (usuários verificados)
-    const activeReferrals = await prisma.referralConversion.count({
-      where: {
-        affiliateId: userId,
-        referredUser: {
-          isVerified: true
-        }
-      }
-    });
-
-    // Usar os ganhos salvos no banco ou calcular
-    const totalEarnings = affiliate.totalEarnings || (activeReferrals * 10);
-
-    const baseUrl = process.env.FRONTEND_URL || 'https://www.betforbes.com';
-    const referralLink = `${baseUrl}/cadastro?ref=${affiliate.code}`;
+    const totalEarnings = activeReferrals * 10;
 
     return {
       totalReferrals,
       activeReferrals,
       totalEarnings,
-      referralLink
+      referralLink: buildReferralLink(code),
     };
   }
 
   /**
-   * Listar usuários referenciados
+   * Listar usuários referenciados (paginado) — compat com shape antigo.
    */
-  async getReferrals(userId: string, page: number = 1, limit: number = 10): Promise<{
+  async getReferrals(
+    userId: string,
+    page: number = 1,
+    limit: number = 10
+  ): Promise<{
     referrals: ReferralUser[];
     total: number;
     page: number;
     totalPages: number;
   }> {
-    const offset = (page - 1) * limit;
+    const take = Math.max(1, Math.min(limit, 100));
+    const skip = Math.max(0, (page - 1) * take);
 
-    // Buscar através da tabela ReferralConversion
-    const [referralConversions, total] = await Promise.all([
-      prisma.referralConversion.findMany({
-        where: { affiliateId: userId },
-        include: {
-          referredUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              isVerified: true,
-              createdAt: true
-            }
-          }
+    const [rows, total] = await Promise.all([
+      prisma.user.findMany({
+        where: { referredBy: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          isVerified: true,
+          createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
-        skip: offset,
-        take: limit
+        skip,
+        take,
       }),
-      prisma.referralConversion.count({
-        where: { affiliateId: userId }
-      })
+      prisma.user.count({ where: { referredBy: userId } }),
     ]);
 
-    const referrals = referralConversions.map(conversion => conversion.referredUser);
-    const totalPages = Math.ceil(total / limit);
-
     return {
-      referrals,
+      referrals: rows,
       total,
       page,
-      totalPages
+      totalPages: Math.max(1, Math.ceil(total / take)),
     };
   }
 }

@@ -32,6 +32,50 @@ export interface AuthResult {
   };
 }
 
+/**
+ * Normaliza código (trim) e resolve dono do código:
+ * 1) tenta User.referralCode
+ * 2) tenta Affiliate.code (se o modelo existir neste branch)
+ */
+const normalizeReferral = (code?: string) => (code || '').trim();
+
+const findReferrerByAnyCode = async (
+  code?: string
+): Promise<{ id: string; email: string } | null> => {
+  const normalized = normalizeReferral(code);
+  if (!normalized) return null;
+
+  // 1) user.referralCode
+  const u = await prisma.user.findUnique({
+    where: { referralCode: normalized },
+    select: { id: true, email: true },
+  });
+  if (u) return u;
+
+  // 2) affiliate.code (compatibilidade entre branches)
+  try {
+    // cast para any para não estourar tipo quando o model não existe neste schema
+    const affiliateClient = (prisma as any).affiliate;
+    if (affiliateClient?.findUnique) {
+      const a = await affiliateClient.findUnique({
+        where: { code: normalized },
+        select: { userId: true },
+      });
+      if (a?.userId) {
+        const owner = await prisma.user.findUnique({
+          where: { id: String(a.userId) },
+          select: { id: true, email: true },
+        });
+        if (owner) return owner;
+      }
+    }
+  } catch {
+    // ignorar silenciosamente: tabela pode não existir neste branch
+  }
+
+  return null;
+};
+
 class AuthService {
   /**
    * Registra um novo usuário
@@ -48,24 +92,26 @@ class AuthService {
       throw createError('Email já está em uso', 409, 'EMAIL_ALREADY_EXISTS');
     }
 
-    // Verificar código de referência se fornecido
-    let referredBy = null;
+    // Verificar código de referência (aceita ambos os formatos)
+    let referredBy: string | null = null;
     if (referralCode) {
-      const referrer = await prisma.user.findUnique({
-        where: { referralCode },
-      });
-      
-      if (!referrer) {
+      const refOwner = await findReferrerByAnyCode(referralCode);
+      if (!refOwner) {
         throw createError('Código de referência inválido', 400, 'INVALID_REFERRAL_CODE');
       }
-      
-      referredBy = referrer.id;
+
+      // 🚫 Bloqueia auto-referência (quem cadastra não pode usar seu próprio código)
+      if (refOwner.email.toLowerCase() === email.toLowerCase()) {
+        throw createError('Você não pode usar seu próprio código de referência', 400, 'SELF_REFERRAL');
+      }
+
+      referredBy = refOwner.id;
     }
 
     // Hash da senha
     const hashedPassword = await hashPassword(password);
 
-    // Gerar código de referência único
+    // Gerar código de referência único (User.referralCode)
     let userReferralCode: string;
     do {
       userReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -94,7 +140,9 @@ class AuthService {
 
     // Gerar token de verificação de email
     const verificationToken = generateSecureToken();
-    const expiresAt = getExpirationDate(parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440')); // 24 horas
+    const expiresAt = getExpirationDate(
+      parseInt(process.env.EMAIL_VERIFICATION_EXPIRES || '1440') // 24 horas
+    );
 
     await prisma.emailVerificationToken.create({
       data: {
@@ -111,7 +159,9 @@ class AuthService {
       verificationToken
     );
 
-    logger.info(`👤 Novo usuário registrado: ${user.email}`);
+    logger.info(
+      `👤 Novo usuário registrado: ${user.email}${referredBy ? ` (referredBy=${referredBy})` : ''}`
+    );
 
     return {
       user,
@@ -147,7 +197,7 @@ class AuthService {
 
     // Verificar se email foi verificado
     if (!user.isVerified) {
-      throw createError("Email não verificado", 401, "EMAIL_NOT_VERIFIED");
+      throw createError('Email não verificado', 401, 'EMAIL_NOT_VERIFIED');
     }
 
     // Gerar tokens
