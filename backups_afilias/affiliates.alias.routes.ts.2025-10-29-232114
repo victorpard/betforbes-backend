@@ -1,0 +1,85 @@
+import { Router, Request, Response } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+import prisma from '../config/prisma';
+
+const router = Router();
+router.use(normalizeAuthHeader, requireAuth);
+
+/**
+ * GET /api/affiliates/referrals
+ * Adapter: retorna {items,total,page,limit} e também {parentId,count,data} para retrocompat.
+ */
+router.get('/referrals', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const parentId: string = user?.userId;
+    if (!parentId) return res.status(401).json({ error: 'unauthorized' });
+
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'), 10) || 20));
+    const offset = (page - 1) * limit;
+
+    // count
+    const countRows = await prisma.$queryRaw<{ cnt: number }[]>`
+      SELECT COUNT(*)::int AS cnt
+      FROM affiliate_referrals ar
+      WHERE ar.parent_user_id = ${parentId}::text
+    `;
+    const total = (countRows?.[0]?.cnt) ?? 0;
+
+    // page rows (join com users; comparar text com uuid => u.id::text)
+    const rows = await prisma.$queryRaw<Array<{
+      id: string,
+      child_user_id: string,
+      createdAt: Date,
+      email: string | null,
+      name: string | null
+    }>>`
+      SELECT ar.id,
+             ar.child_user_id,
+             ar."createdAt",
+             u.email,
+             u.name
+      FROM affiliate_referrals ar
+      LEFT JOIN users u ON u.id::text = ar.child_user_id
+      WHERE ar.parent_user_id = ${parentId}::text
+      ORDER BY ar."createdAt" DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    const items = (rows || []).map(r => ({
+      id: r.id,
+      childUserId: r.child_user_id,
+      email: r.email,
+      name: r.name,
+      createdAt: r.createdAt,
+    }));
+
+    // payload compatível com ambos os consumidores
+    return res.json({
+      // novo shape (o que o frontend da aba /afiliados espera)
+      items,
+      total,
+      page,
+      limit,
+      // shape legado (mantém compat)
+      parentId,
+      count: total,
+      data: items,
+      success: true,
+      message: 'OK'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'internal error' });
+  }
+});
+
+/**
+ * GET /api/affiliates/stats
+ * Apenas reexporta do módulo atual de stats (sem mudar shape).
+ */
+import getAffiliateStats from '../modules/affiliate/affiliate.controller';
+router.get('/stats', (req, res, next) => getAffiliateStats(req, res, next));
+
+export default router;

@@ -1,0 +1,91 @@
+import { Router, Request, Response } from 'express';
+
+// Middlewares já existentes no projeto
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+
+// Controller LEGADO que já entrega {items,total,page,limit} para /referrals
+// (não mexemos nele, apenas reaproveitamos)
+import { listReferrals } from '../controllers/affiliate.controller';
+
+// Prisma client central do projeto
+import prisma from '../lib/prisma';
+
+// ---- Router ----
+const router = Router();
+
+// Todas as rotas exigem bearer (Authorization) e normalização de header
+router.use(normalizeAuthHeader, requireAuth);
+
+/**
+ * GET /api/affiliate/referrals
+ * Mantém o comportamento legado já consumido pelo frontend.
+ */
+router.get('/referrals', listReferrals);
+
+/**
+ * GET /api/affiliate/stats
+ * Reexpõe a rota que estava faltando (404).
+ * Responde no formato que o frontend já usa:
+ * { success, message, data: { totalReferrals, activeReferrals, totalEarnings, referralLink } }
+ */
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    // user injetado por requireAuth
+    const tokenUser = (req as any).user as { userId: string; email: string; role: string };
+
+    // Busca o usuário para pegar referralCode
+    const user = await prisma.user.findUnique({
+      where: { id: tokenUser.userId },
+      select: { id: true, referralCode: true },
+    });
+
+    // Se por algum motivo não achar, retorna zeros mas com success true (front não quebra)
+    if (!user) {
+      return res.json({
+        success: true,
+        message: 'Estatísticas de afiliados obtidas com sucesso',
+        data: {
+          totalReferrals: 0,
+          activeReferrals: 0,
+          totalEarnings: 0,
+          referralLink: null,
+        },
+      });
+    }
+
+    // Conta de referrals: a tabela usa parent_user_id como TEXT, então comparamos string→string
+    const rows = await prisma.$queryRaw<Array<{ cnt: number }>>`
+      SELECT COUNT(*)::int AS cnt
+      FROM affiliate_referrals
+      WHERE parent_user_id::text = ${user.id}::text
+    `;
+    const totalReferrals = (rows && rows[0] && typeof rows[0].cnt === 'number') ? rows[0].cnt : 0;
+
+    // Para já: tratamos activeReferrals e totalEarnings como 0 (não alteramos regras de negócio existentes)
+    const activeReferrals = 0;
+    const totalEarnings = 0;
+
+    const referralLink = user.referralCode
+      ? `https://www.betforbes.com/cadastro?ref=${user.referralCode}`
+      : null;
+
+    return res.json({
+      success: true,
+      message: 'Estatísticas de afiliados obtidas com sucesso',
+      data: {
+        totalReferrals,
+        activeReferrals,
+        totalEarnings,
+        referralLink,
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: err?.message || 'Erro ao obter estatísticas de afiliados',
+    });
+  }
+});
+
+export default router;
