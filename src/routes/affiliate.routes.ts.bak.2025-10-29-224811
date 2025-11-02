@@ -1,0 +1,91 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+
+// Tentamos usar o módulo NOVO (singular)
+let NewAff: any = null;
+try {
+  NewAff = require('../modules/affiliate/affiliate.controller');
+} catch (_e) {
+  NewAff = null;
+}
+
+// (Opcional) carregar o controller LEGADO como último fallback
+let Legacy: any = null;
+try {
+  Legacy = require('../controllers/affiliate.controller');
+} catch (_e) {
+  Legacy = null;
+}
+
+const pickHandler = (...candidates: any[]) =>
+  candidates.find((fn) => typeof fn === 'function') || null;
+
+// Handler de referrals:
+// Preferência: módulo novo -> nomes comuns -> default -> legado (com normalização)
+const handlerReferrals =
+  pickHandler(
+    NewAff?.getAffiliateReferrals,
+    NewAff?.listReferrals,
+    NewAff?.default?.getAffiliateReferrals,
+    NewAff?.default?.listReferrals
+  ) ||
+  (Legacy
+    ? async (req: Request, res: Response, next: NextFunction) => {
+        try {
+          // Chama o legado e captura a resposta
+          const _res: any = await Legacy.listReferrals(req, {
+            json: (payload: any) => payload,
+          } as any, next);
+
+          // Se o legado respondeu { parentId, count, data }, normaliza para
+          // { items, total, page, limit } que o frontend espera
+          // Caso _res venha por res.json direto, tentamos ler de req para montar default
+          const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+          const limit = Math.max(1, parseInt(String(req.query.limit || '50'), 10));
+
+          const legacy = (_res && typeof _res === 'object') ? _res : {};
+          const items = Array.isArray(legacy.data) ? legacy.data : [];
+          const total = Number.isFinite(legacy.count) ? legacy.count : items.length;
+
+          return res.json({ items, total, page, limit });
+        } catch (err) {
+          return next(err);
+        }
+      }
+    : null);
+
+// Handler de stats:
+// Preferência: módulo novo -> nomes comuns -> default -> legado direto
+const handlerStats =
+  pickHandler(
+    NewAff?.getAffiliateStats,
+    NewAff?.stats,
+    NewAff?.default?.getAffiliateStats,
+    NewAff?.default?.stats,
+  ) ||
+  (Legacy ? Legacy.stats : null);
+
+// Router
+const router = Router();
+
+// /api/affiliate/referrals → sempre exige bearer normalizado e auth
+if (!handlerReferrals) {
+  // Se nada foi encontrado, responde 501 para não quebrar o app
+  router.get('/referrals', (_req, res) =>
+    res.status(501).json({ error: 'affiliate referrals handler not found' })
+  );
+} else {
+  router.get('/referrals', normalizeAuthHeader, requireAuth, handlerReferrals);
+}
+
+// /api/affiliate/stats → idem
+if (!handlerStats) {
+  router.get('/stats', (_req, res) =>
+    res.status(501).json({ error: 'affiliate stats handler not found' })
+  );
+} else {
+  router.get('/stats', normalizeAuthHeader, requireAuth, handlerStats);
+}
+
+export default router;

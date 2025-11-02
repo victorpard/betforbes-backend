@@ -1,0 +1,44 @@
+import { Router } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+import { listReferrals } from '../controllers/affiliate.controller'; // legado que já está em uso
+
+const router = Router();
+
+// Shim de compatibilidade: se o controller devolver {items,total,page,limit},
+// envelopa em { success, message, data:{...} } sem quebrar quem usa o formato antigo.
+router.get(
+  '/referrals',
+  (req, res, next) => {
+    const origJson = res.json.bind(res);
+    res.json = (payload: any) => {
+      try {
+        const looksBare =
+          payload &&
+          typeof payload === 'object' &&
+          'items' in payload &&
+          'total' in payload &&
+          'page' in payload &&
+          'limit' in payload &&
+          !('success' in payload) &&
+          !('data' in payload);
+
+        if (looksBare) {
+          return origJson({
+            success: true,
+            message: 'Lista de afiliados obtida com sucesso',
+            data: payload,           // novo formato usado pelo frontend
+            ...payload               // mantém os campos soltos para retrocompat
+          });
+        }
+      } catch (_) { /* noop */ }
+      return origJson(payload);
+    };
+    next();
+  },
+  normalizeAuthHeader,
+  requireAuth,
+  listReferrals
+);
+
+export default router;

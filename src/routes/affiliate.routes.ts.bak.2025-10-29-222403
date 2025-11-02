@@ -1,0 +1,8 @@
+import { Router } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+import { listReferrals } from '../controllers/affiliate.controller';
+
+const router = Router();
+router.get('/referrals', normalizeAuthHeader, requireAuth, listReferrals);
+export default router;

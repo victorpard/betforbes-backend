@@ -1,0 +1,104 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import prisma from '../config/prisma';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+
+const router = Router();
+router.use(normalizeAuthHeader, requireAuth);
+
+/**
+ * GET /api/aff-v2/referrals?page=1&limit=50
+ * Garante comparações UUID = UUID (casts explícitos em TODAS as colunas/params).
+ */
+router.get('/referrals', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tokenUser = (req as any).user;
+    const parentId: string = tokenUser?.userId; // string, será castado para ::uuid
+    const page = Math.max(1, parseInt(String(req.query.page || '1'), 10));
+    const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit || '50'), 10)));
+    const offset = (page - 1) * limit;
+
+    const rows = await prisma.$queryRaw<
+      { child_id: string; child_email: string; child_name: string | null; child_isVerified: boolean; createdAt: Date }[]
+    >`
+      SELECT
+        (ar.child_user_id)::text         AS child_id,
+        c.email                          AS child_email,
+        c.name                           AS child_name,
+        c."isVerified"                   AS child_isVerified,
+        ar."createdAt"                   AS "createdAt"
+      FROM public.affiliate_referrals ar
+      JOIN public.users c
+        ON (c.id)::uuid = (ar.child_user_id)::uuid
+      WHERE (ar.parent_user_id)::uuid = (${parentId})::uuid
+      ORDER BY ar."createdAt" DESC
+      LIMIT ${limit} OFFSET ${offset};
+    `;
+
+    const totalRow = await prisma.$queryRaw<{ cnt: number }[]>`
+      SELECT COUNT(*)::int AS cnt
+      FROM public.affiliate_referrals ar
+      WHERE (ar.parent_user_id)::uuid = (${parentId})::uuid;
+    `;
+    const total = totalRow?.[0]?.cnt ?? 0;
+
+    const items = (rows || []).map(r => ({
+      id: r.child_id,
+      email: r.child_email,
+      name: r.child_name ?? null,
+      isVerified: !!r.child_isVerified,
+      createdAt: r.createdAt,
+    }));
+
+    res.set('x-aff-router', 'v2-darklaunch');
+    return res.json({
+      success: true,
+      message: "Lista de afiliados (v2) obtida com sucesso",
+      data: { items, total, page, limit },
+      // retrocompat leitura
+      items, total, page, limit
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * GET /api/aff-v2/stats
+ * Já estava OK, mas reforçamos o cast por consistência.
+ */
+router.get('/stats', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tokenUser = (req as any).user;
+    const parentId: string = tokenUser?.userId;
+
+    const totalRow = await prisma.$queryRaw<{ cnt: number }[]>`
+      SELECT COUNT(*)::int AS cnt
+      FROM public.affiliate_referrals ar
+      WHERE (ar.parent_user_id)::uuid = (${parentId})::uuid;
+    `;
+    const totalReferrals = totalRow?.[0]?.cnt ?? 0;
+
+    const activeReferrals = 0;
+    const totalEarnings = 0;
+
+    const me = await prisma.user.findUnique({
+      where: { id: parentId },
+      select: { referralCode: true },
+    });
+    const code = me?.referralCode || '';
+    const frontend = process.env.FRONTEND_URL || 'https://www.betforbes.com';
+    const referralLink = `${frontend}/cadastro?ref=${code}`;
+
+    res.set('x-aff-router', 'v2-darklaunch');
+    return res.json({
+      success: true,
+      message: 'Estatísticas de afiliados (v2) obtidas com sucesso',
+      data: { totalReferrals, activeReferrals, totalEarnings, referralLink }
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+export default router;

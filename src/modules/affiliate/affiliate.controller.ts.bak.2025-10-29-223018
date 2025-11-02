@@ -1,12 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import prisma from '../../lib/prisma';
+import asyncHandler from '../../middlewares/asyncHandler';
 import logger from '../../utils/logger';
-
-// asyncHandler inline (evita depender de caminho externo)
-const asyncHandler =
-  <T extends Function>(fn: any) =>
-  (req: Request, res: Response, next: NextFunction) =>
-    Promise.resolve(fn(req, res, next)).catch(next);
 
 // Util: monta link de referral a partir do referralCode do usuário
 function buildReferralLink(code: string | null | undefined): string | null {
@@ -31,10 +26,12 @@ export const getAffiliateReferrals = asyncHandler(async (req: Request, res: Resp
   const limit = Math.min(Math.max(parseInt((req.query.limit as string) || '50', 10), 1), 100);
   const skip = (page - 1) * limit;
 
+  // total de referidos direto por users.referredBy
   const total = await prisma.user.count({
     where: { referredBy: parentId }
   });
 
+  // paginação
   const items = await prisma.user.findMany({
     where: { referredBy: parentId },
     select: {
@@ -64,11 +61,13 @@ export const getAffiliateStats = asyncHandler(async (req: Request, res: Response
     return res.status(401).json({ success: false, message: 'Não autenticado' });
   }
 
+  // pega o usuário para ler referralCode
   const me = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, name: true, referralCode: true }
   });
 
+  // contadores básicos
   const totalReferrals = await prisma.user.count({
     where: { referredBy: userId }
   });
@@ -77,7 +76,10 @@ export const getAffiliateStats = asyncHandler(async (req: Request, res: Response
     where: { referredBy: userId, isVerified: true }
   });
 
-  const totalEarnings = 0; // placeholder até termos cálculo real
+  // earnings: se ainda não há tabela de comissões agregadas, retorna 0.00
+  // (mantém compatibilidade de resposta para o frontend)
+  const totalEarnings = 0;
+
   const referralLink = buildReferralLink(me?.referralCode);
 
   return res.json({

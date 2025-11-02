@@ -1,4 +1,3 @@
-// src/app.ts
 import express, { Request, Response, NextFunction } from 'express';
 import cors, { type CorsOptions } from 'cors';
 import helmet from 'helmet';
@@ -14,9 +13,6 @@ const app = express();
 
 /** Se roda atrás do Nginx/Proxy */
 app.set('trust proxy', 1);
-
-/** Desativa ETag para evitar 304/caching indevido na API */
-app.set('etag', false);
 
 /** Helmet (segurança básica) */
 app.use(
@@ -107,16 +103,7 @@ app.use('/api/auth/profile', (req: Request, res: Response, next: NextFunction): 
   next();
 });
 
-/** Anti-cache para toda a API (evita 304/ETag e garante dados frescos por usuário) */
-app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.setHeader('Vary', 'Authorization');
-  next();
-});
-
-/** Healthcheck rápido (público) */
+/** Healthcheck rápido */
 app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });

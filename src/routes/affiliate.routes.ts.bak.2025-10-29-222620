@@ -1,0 +1,19 @@
+import { Router } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+
+// >>> usa o MÓDULO NOVO (singular):
+import {
+  getAffiliateReferrals,  // GET /referrals
+  getAffiliateStats       // GET /stats
+} from '../modules/affiliate/affiliate.controller';
+
+const router = Router();
+
+// Lista paginada dos referidos (shape: { items, total, page, limit })
+router.get('/referrals', normalizeAuthHeader, requireAuth, getAffiliateReferrals);
+
+// Estatísticas do afiliado (shape: { success, data: { totalReferrals, activeReferrals, totalEarnings, referralLink } })
+router.get('/stats', normalizeAuthHeader, requireAuth, getAffiliateStats);
+
+export default router;
