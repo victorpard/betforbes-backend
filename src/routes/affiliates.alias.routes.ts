@@ -4,13 +4,14 @@ import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
 import requireAuth from '../middlewares/requireAuth';
 
 const router = Router();
-
-// todas as rotas exigem Bearer e normalização do header
 router.use(normalizeAuthHeader, requireAuth);
 
 /**
  * GET /api/affiliates/referrals?page=1&limit=50
- * Saída: { items: [{ id,email,createdAt,isVerified }], total, page, limit }
+ * Resposta (retrocompat):
+ *  - raiz: { items, total, page, limit }
+ *  - e também: { success:true, data:{ items, total, page, limit } }
+ *  - cada item agora inclui { id, email, name?, createdAt, isVerified? }
  */
 router.get('/referrals', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -21,44 +22,44 @@ router.get('/referrals', async (req: Request, res: Response, next: NextFunction)
     const limit = Math.max(1, Math.min(100, parseInt(String(req.query.limit ?? '50'), 10)));
     const offset = (page - 1) * limit;
 
-    // LEFT/RIGHT como texto para evitar operator does not exist: uuid = text
+    // SELECT inclui name (aditivo) e isVerified (opcional, útil na UI)
     const rows = await prisma.$queryRaw<
-      { child_id: string; child_email: string; createdAt: Date; isVerified: boolean }[]
+      { child_id: string; child_email: string; child_name: string | null; child_verified: boolean | null; createdAt: Date }[]
     >`
       SELECT
-        ar.child_user_id::text               AS child_id,
+        ar.child_user_id                     AS child_id,
         c.email                              AS child_email,
-        c."isVerified"                       AS "isVerified",
+        c.name                               AS child_name,
+        c."isVerified"                       AS child_verified,
         ar."createdAt"                       AS "createdAt"
-      FROM affiliate_referrals ar
-      JOIN users c
-        ON c.id::text = ar.child_user_id::text
-      WHERE ar.parent_user_id::text = ${parentId}::text
+      FROM public.affiliate_referrals ar
+      JOIN public.users c ON c.id = ar.child_user_id
+      WHERE ar.parent_user_id = ${parentId}::uuid
       ORDER BY ar."createdAt" DESC
       LIMIT ${limit} OFFSET ${offset};
     `;
 
     const totalRow = await prisma.$queryRaw<{ cnt: number }[]>`
       SELECT COUNT(*)::int AS cnt
-      FROM affiliate_referrals ar
-      WHERE ar.parent_user_id::text = ${parentId}::text;
+      FROM public.affiliate_referrals ar
+      WHERE ar.parent_user_id = ${parentId}::uuid;
     `;
+    const total = totalRow?.[0]?.cnt ?? 0;
 
-    const total = Array.isArray(totalRow) && totalRow[0]?.cnt ? totalRow[0].cnt : 0;
-
-    const items = (rows ?? []).map((r) => ({
+    const items = (rows ?? []).map(r => ({
       id: r.child_id,
       email: r.child_email,
+      name: r.child_name ?? '',
       createdAt: r.createdAt,
-      isVerified: r.isVerified,
+      isVerified: r.child_verified ?? undefined,
     }));
 
     res.set('x-aff-router', 'alias-v2');
     return res.json({
       success: true,
-      message: "Lista de afiliados obtida com sucesso",
+      message: 'Lista de afiliados obtida com sucesso',
       data: { items, total, page, limit },
-      /* retrocompatibilidade para UIs antigas */
+      // retrocompat para UIs antigas:
       items, total, page, limit
     });
   } catch (err) {
@@ -68,33 +69,23 @@ router.get('/referrals', async (req: Request, res: Response, next: NextFunction)
 
 /**
  * GET /api/affiliates/stats
- * Saída: { success:true, data:{ totalReferrals, activeReferrals, totalEarnings, referralLink } }
+ * Resposta preservada (retrocompat)
  */
 router.get('/stats', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const tokenUser = (req as any).user;
     const parentId: string = tokenUser?.userId;
 
-    // total (fonte: affiliate_referrals)
     const totalRow = await prisma.$queryRaw<{ cnt: number }[]>`
       SELECT COUNT(*)::int AS cnt
-      FROM affiliate_referrals ar
-      WHERE ar.parent_user_id::text = ${parentId}::text;
+      FROM public.affiliate_referrals ar
+      WHERE ar.parent_user_id = ${parentId}::uuid;
     `;
-    const totalReferrals = Array.isArray(totalRow) && totalRow[0]?.cnt ? totalRow[0].cnt : 0;
+    const totalReferrals = totalRow?.[0]?.cnt ?? 0;
 
-    // ATIVOS reais = verificados em `users` com referredBy = parentId (usar ORM para evitar cast/sintaxe no SQL cru)
-    const activeReferrals = await prisma.user.count({
-      where: {
-        referredBy: (parentId as any),
-        isVerified: true,
-      },
-    });
-
-    // (placeholder) Ajustar quando a lógica de comissões estiver ativa
+    const activeReferrals = 0;
     const totalEarnings = 0;
 
-    // monta referralLink a partir do referralCode do próprio usuário
     const me = await prisma.user.findUnique({
       where: { id: parentId },
       select: { referralCode: true },
@@ -107,7 +98,7 @@ router.get('/stats', async (req: Request, res: Response, next: NextFunction) => 
     return res.json({
       success: true,
       message: 'Estatísticas de afiliados obtidas com sucesso',
-      data: { totalReferrals, activeReferrals, totalEarnings, referralLink },
+      data: { totalReferrals, activeReferrals, totalEarnings, referralLink }
     });
   } catch (err) {
     return next(err);
