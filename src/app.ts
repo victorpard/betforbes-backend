@@ -1,5 +1,4 @@
-import affiliateRoutes from "./routes/affiliate.routes";
-import referralRoutes from "./routes/referral.routes";
+// src/app.ts
 import express, { Request, Response, NextFunction } from 'express';
 import cors, { type CorsOptions } from 'cors';
 import helmet from 'helmet';
@@ -12,11 +11,12 @@ import { rateLimiter } from './middlewares/rateLimiter';
 import { referralCookie } from './middlewares/referralCookie';
 
 const app = express();
-app.use('/api/affiliate', affiliateRoutes);
-app.use('/api/referral', referralRoutes);
 
 /** Se roda atrás do Nginx/Proxy */
 app.set('trust proxy', 1);
+
+/** Desativa ETag para evitar 304/caching indevido na API */
+app.set('etag', false);
 
 /** Helmet (segurança básica) */
 app.use(
@@ -107,7 +107,16 @@ app.use('/api/auth/profile', (req: Request, res: Response, next: NextFunction): 
   next();
 });
 
-/** Healthcheck rápido */
+/** Anti-cache para toda a API (evita 304/ETag e garante dados frescos por usuário) */
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Vary', 'Authorization');
+  next();
+});
+
+/** Healthcheck rápido (público) */
 app.get('/healthz', (_req: Request, res: Response) => {
   res.json({ ok: true });
 });
