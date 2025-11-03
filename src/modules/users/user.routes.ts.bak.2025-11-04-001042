@@ -1,10 +1,25 @@
 import { Router } from 'express';
 import userController from './user.controller';
+// ✅ usar o middleware oficial do módulo de auth (mesmo usado no resto da API)
+import { authMiddleware } from '../../modules/auth/auth.middleware';
 import { validateRequest } from '../../utils/validation';
 import { updateProfileSchema, changePasswordSchema } from '../auth/auth.validation';
 
-// 🔒 usa o guard unificado
-import { authBridge } from '../../middlewares/auth-bridge';
+/**
+ * Bridge de compatibilidade:
+ * Se algum fluxo tiver populado somente res.locals.user,
+ * garantimos que req.user também exista (sem alterar controladores).
+ */
+const ensureReqUser = (req: any, res: any, next: any) => {
+  try {
+    if (!req.user && res?.locals?.user) {
+      req.user = res.locals.user;
+    }
+    next();
+  } catch (e) {
+    next(e);
+  }
+};
 
 const router = Router();
 
@@ -36,7 +51,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/profile', authBridge, userController.getProfile);
+router.get('/profile', authMiddleware, ensureReqUser, userController.getProfile);
 
 /**
  * @swagger
@@ -85,7 +100,13 @@ router.get('/profile', authBridge, userController.getProfile);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put('/profile', authBridge, validateRequest(updateProfileSchema), userController.updateProfile);
+router.put(
+  '/profile',
+  authMiddleware,
+  ensureReqUser,
+  validateRequest(updateProfileSchema),
+  userController.updateProfile
+);
 
 /**
  * @swagger
@@ -131,7 +152,13 @@ router.put('/profile', authBridge, validateRequest(updateProfileSchema), userCon
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/change-password', authBridge, validateRequest(changePasswordSchema), userController.changePassword);
+router.post(
+  '/change-password',
+  authMiddleware,
+  ensureReqUser,
+  validateRequest(changePasswordSchema),
+  userController.changePassword
+);
 
 /**
  * @swagger
@@ -169,7 +196,7 @@ router.post('/change-password', authBridge, validateRequest(changePasswordSchema
  *                       isActive:
  *                         type: boolean
  */
-router.get('/sessions', authBridge, userController.getSessions);
+router.get('/sessions', authMiddleware, ensureReqUser, userController.getSessions);
 
 /**
  * @swagger
@@ -206,7 +233,7 @@ router.get('/sessions', authBridge, userController.getSessions);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete('/sessions/:sessionId', authBridge, userController.revokeSession);
+router.delete('/sessions/:sessionId', authMiddleware, ensureReqUser, userController.revokeSession);
 
 /**
  * @swagger
@@ -232,7 +259,7 @@ router.delete('/sessions/:sessionId', authBridge, userController.revokeSession);
  *                 revokedCount:
  *                   type: number
  */
-router.post('/sessions/revoke-all', authBridge, userController.revokeAllSessions);
+router.post('/sessions/revoke-all', authMiddleware, ensureReqUser, userController.revokeAllSessions);
 
 /**
  * @swagger
@@ -274,6 +301,6 @@ router.post('/sessions/revoke-all', authBridge, userController.revokeAllSessions
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete('/delete-account', authBridge, userController.deleteAccount);
+router.delete('/delete-account', authMiddleware, ensureReqUser, userController.deleteAccount);
 
 export default router;
