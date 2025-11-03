@@ -18,20 +18,15 @@ ACCESS="$(
     --data "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" \
   | jq -r '.accessToken // .data.tokens.accessToken // .token // empty'
 )"
-if [ -z "$ACCESS" ]; then
-  echo "ERRO: não foi possível extrair access token"; exit 1
-fi
+[ -z "$ACCESS" ] && { echo "ERRO: não foi possível extrair access token"; exit 1; }
 
 say "→ validate"
-curl -fsS -H "Authorization: Bearer $ACCESS" \
-  "$BASE/api/auth/validate" | jq -r '.success, .user.email'; echo
+curl -fsS -H "Authorization: Bearer $ACCESS" "$BASE/api/auth/validate" | jq -r '.success, .user.email'; echo
 
 say "→ profile"
-curl -fsS -H "Authorization: Bearer $ACCESS" \
-  "$BASE/api/users/profile" | jq -r '.success, .user.name, .user.isVerified'; echo
+curl -fsS -H "Authorization: Bearer $ACCESS" "$BASE/api/users/profile" | jq -r '.success, .user.name, .user.isVerified'; echo
 
 say "→ affiliates/stats"
-curl -fsS -H "Authorization: Bearer $ACCESS" \
-  "$BASE/api/affiliates/stats" | jq -r '.success, .data.referralLink'; echo
+curl -fsS -H "Authorization: Bearer $ACCESS" "$BASE/api/affiliates/stats" | jq -r '.success, .data.referralLink'; echo
 
 say "✓ Smoke PROD OK"
