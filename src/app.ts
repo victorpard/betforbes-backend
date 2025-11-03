@@ -1,28 +1,25 @@
-import routes from "./routes/index";
-// src/app.ts
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
+import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import morgan from 'morgan';
+import routes from './routes/index';
 
 const app = express();
 
-// Middlewares básicos
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
-app.use(helmet());
+// middlewares básicos
+app.use(helmet({
+  contentSecurityPolicy: false, // já está vindo via headers fixos
+}));
 app.use(cors({ origin: true, credentials: true }));
-app.use(morgan('dev'));
+app.use(express.json());
+app.use(cookieParser());
 
-// Healthcheck (antes de montar /api e do 404)
-app.get('/api/health', (_req, res) => res.status(200).send('OK'));
-
-// Monta todas as rotas da API
+// todas as rotas ficam sob /api
 app.use('/api', routes);
 
-// 404 final
-app.use((_req, res) => res.status(404).send('Not Found'));
+// 404 handler simples (deixa os módulos tratarem os seus 404s também)
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Not Found' });
+});
 
 export default app;
