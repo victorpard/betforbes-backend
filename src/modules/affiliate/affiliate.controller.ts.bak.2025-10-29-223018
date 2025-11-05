@@ -1,0 +1,100 @@
+import { Request, Response } from 'express';
+import prisma from '../../lib/prisma';
+import asyncHandler from '../../middlewares/asyncHandler';
+import logger from '../../utils/logger';
+
+// Util: monta link de referral a partir do referralCode do usuário
+function buildReferralLink(code: string | null | undefined): string | null {
+  const base = process.env.FRONTEND_URL || 'https://www.betforbes.com';
+  if (!code) return null;
+  return `${base.replace(/\/+$/,'')}/cadastro?ref=${code}`;
+}
+
+/**
+ * GET /api/affiliate/referrals?page=1&limit=50
+ * Lista os usuários cuja coluna users.referredBy == userId do token
+ */
+export const getAffiliateReferrals = asyncHandler(async (req: Request, res: Response) => {
+  const tokenUser = (req as any).user; // vindo do authenticateToken
+  const parentId: string = tokenUser?.userId;
+
+  if (!parentId) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
+  const page = Math.max(parseInt((req.query.page as string) || '1', 10), 1);
+  const limit = Math.min(Math.max(parseInt((req.query.limit as string) || '50', 10), 1), 100);
+  const skip = (page - 1) * limit;
+
+  // total de referidos direto por users.referredBy
+  const total = await prisma.user.count({
+    where: { referredBy: parentId }
+  });
+
+  // paginação
+  const items = await prisma.user.findMany({
+    where: { referredBy: parentId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      isVerified: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+    skip,
+    take: limit,
+  });
+
+  return res.json({ items, total, page, limit });
+});
+
+/**
+ * GET /api/affiliate/stats
+ * Estatísticas derivadas de users.referredBy (sem usar tabela affiliates)
+ */
+export const getAffiliateStats = asyncHandler(async (req: Request, res: Response) => {
+  const tokenUser = (req as any).user; // authenticateToken
+  const userId: string = tokenUser?.userId;
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: 'Não autenticado' });
+  }
+
+  // pega o usuário para ler referralCode
+  const me = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, referralCode: true }
+  });
+
+  // contadores básicos
+  const totalReferrals = await prisma.user.count({
+    where: { referredBy: userId }
+  });
+
+  const activeReferrals = await prisma.user.count({
+    where: { referredBy: userId, isVerified: true }
+  });
+
+  // earnings: se ainda não há tabela de comissões agregadas, retorna 0.00
+  // (mantém compatibilidade de resposta para o frontend)
+  const totalEarnings = 0;
+
+  const referralLink = buildReferralLink(me?.referralCode);
+
+  return res.json({
+    success: true,
+    message: 'Estatísticas de afiliados obtidas com sucesso',
+    data: {
+      totalReferrals,
+      activeReferrals,
+      totalEarnings,
+      referralLink
+    }
+  });
+});
+
+export default {
+  getAffiliateReferrals,
+  getAffiliateStats,
+};

@@ -1,39 +1,25 @@
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
+import express from 'express';
 import helmet from 'helmet';
-import morgan from 'morgan';
-import { errorHandler } from './middlewares/errorHandler';
-import { rateLimiter } from './middlewares/rateLimiter';
-import apiRouter from './routes'; // certifique-se de que em src/routes/index.ts há: export default router;
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import routes from './routes/index';
 
 const app = express();
-app.use("/api/auth/profile", (req: Request, res: Response, next: NextFunction): void => {
-  const auth = req.headers["authorization"];
-  if (!auth || !auth.startsWith("Bearer ")) {
-    res.status(401).json({ success: false, code: "UNAUTHORIZED" });
-  return;
-  }
-  next();
-});
 
-// configurações básicas de segurança e parsing
-app.use(helmet());
-app.use(
-  cors({
-    origin: process.env.FRONTEND_URL,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  })
-);
+// middlewares básicos
+app.use(helmet({
+  contentSecurityPolicy: false, // já está vindo via headers fixos
+}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
-app.use(morgan('tiny'));
+app.use(cookieParser());
 
-// aplicar rate limiter globalmente
-app.use(rateLimiter);
+// todas as rotas ficam sob /api
+app.use('/api', routes);
 
-// todas as rotas da API sob /api
-app.use('/api', apiRouter);
-
-// tratador de erros deve vir por último
-app.use(errorHandler);
+// 404 handler simples (deixa os módulos tratarem os seus 404s também)
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Not Found' });
+});
 
 export default app;

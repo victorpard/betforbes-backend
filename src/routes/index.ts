@@ -1,20 +1,33 @@
-import affiliateRoutes from '../modules/affiliates/affiliate.routes';
-import { authenticateToken } from '../middlewares/auth';
 import { Router } from 'express';
+
+import healthRoutes from './health.routes';
+import versionRoutes from './version.routes';
+import legacyRoutes from './legacy.routes';
+
 import authRoutes from './auth';
 import marketRoutes from './market.routes';
-// outros imports...
+import referralRoutes from './referral.routes';
+import affiliatesV2Routes from './affiliates.v2.routes';
+import userRoutes from '../modules/users/user.routes';
 
 const router = Router();
 
-// prefixa /auth
-router.use('/auth', authRoutes);
+// canários / diagnósticos
+router.use('/health', healthRoutes);
+router.use('/version', versionRoutes);
 
-// Rotas de afiliado
-router.use('/affiliate', authenticateToken, affiliateRoutes);
-// outras rotas: /market, /users, etc.
+// principais
+router.use('/auth', authRoutes);
 router.use('/market', marketRoutes);
-// rota de afiliados
-router.use('/affiliate', affiliateRoutes);
+router.use('/referral', referralRoutes);
+router.use('/users', userRoutes);
+
+// afiliados (v2 + aliases legados)
+router.use('/aff-v2', affiliatesV2Routes);
+router.use('/affiliate', affiliatesV2Routes);   // legado singular
+router.use('/affiliates', affiliatesV2Routes);  // legado plural
+
+// aliases legados diversos (/api/profile, /api/me)
+router.use('/', legacyRoutes);
 
 export default router;

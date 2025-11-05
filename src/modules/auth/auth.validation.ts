@@ -49,16 +49,22 @@ export const registerSchema = Joi.object({
     .messages({
       'any.only': 'As senhas não coincidem',
       'string.empty': 'Confirmação de senha é obrigatória',
+      'any.required': 'Confirmação de senha é obrigatória',
     }),
 
+  // ✅ Aceita vazio ("") e transforma em undefined (não quebra o registro)
   referralCode: Joi.string()
-    .length(8)
+    .trim()
     .uppercase()
+    .min(6)
+    .max(12)
+    .empty('')         // trata "" como valor ausente
     .optional()
     .messages({
-      'string.length': 'Código de referência deve ter exatamente 8 caracteres',
+      'string.min': 'Código de referência deve ter entre 6 e 12 caracteres',
+      'string.max': 'Código de referência deve ter entre 6 e 12 caracteres',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para login
 export const loginSchema = Joi.object({
@@ -80,7 +86,7 @@ export const loginSchema = Joi.object({
       'string.empty': 'Senha é obrigatória',
       'any.required': 'Senha é obrigatória',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para esqueci minha senha
 export const forgotPasswordSchema = Joi.object({
@@ -94,7 +100,7 @@ export const forgotPasswordSchema = Joi.object({
       'string.email': 'Email deve ter um formato válido',
       'any.required': 'Email é obrigatório',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para redefinir senha
 export const resetPasswordSchema = Joi.object({
@@ -114,7 +120,7 @@ export const resetPasswordSchema = Joi.object({
         'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
       'any.required': 'Nova senha é obrigatória',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para reenviar verificação de email
 export const resendVerificationSchema = Joi.object({
@@ -128,7 +134,7 @@ export const resendVerificationSchema = Joi.object({
       'string.email': 'Email deve ter um formato válido',
       'any.required': 'Email é obrigatório',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para refresh token
 export const refreshTokenSchema = Joi.object({
@@ -138,7 +144,7 @@ export const refreshTokenSchema = Joi.object({
       'string.empty': 'Refresh token é obrigatório',
       'any.required': 'Refresh token é obrigatório',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para logout
 export const logoutSchema = Joi.object({
@@ -148,7 +154,7 @@ export const logoutSchema = Joi.object({
       'string.empty': 'Refresh token é obrigatório',
       'any.required': 'Refresh token é obrigatório',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para atualizar perfil
 export const updateProfileSchema = Joi.object({
@@ -175,7 +181,7 @@ export const updateProfileSchema = Joi.object({
     .messages({
       'date.max': 'Data de nascimento não pode ser no futuro',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Schema para alterar senha dentro do perfil
 export const changePasswordSchema = Joi.object({
@@ -195,7 +201,7 @@ export const changePasswordSchema = Joi.object({
         'Nova senha deve ter ao menos 8 caracteres, uma letra maiúscula, uma minúscula, um número e um caractere especial',
       'any.required': 'Nova senha é obrigatória',
     }),
-});
+}).prefs({ abortEarly: false, convert: true, stripUnknown: true });
 
 // Validações auxiliares (opcionais)
 export const customValidations = {

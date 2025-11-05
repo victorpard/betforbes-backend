@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import userController from './user.controller';
-import { authMiddleware } from '../../middlewares/auth';
 import { validateRequest } from '../../utils/validation';
 import { updateProfileSchema, changePasswordSchema } from '../auth/auth.validation';
+
+// 🔒 usa o guard unificado
+import { authBridge } from '../../middlewares/auth-bridge';
 
 const router = Router();
 
@@ -34,7 +36,7 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/profile', authMiddleware, userController.getProfile);
+router.get('/profile', authBridge, userController.getProfile);
 
 /**
  * @swagger
@@ -83,7 +85,7 @@ router.get('/profile', authMiddleware, userController.getProfile);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.put('/profile', authMiddleware, validateRequest(updateProfileSchema), userController.updateProfile);
+router.put('/profile', authBridge, validateRequest(updateProfileSchema), userController.updateProfile);
 
 /**
  * @swagger
@@ -129,7 +131,7 @@ router.put('/profile', authMiddleware, validateRequest(updateProfileSchema), use
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/change-password', authMiddleware, validateRequest(changePasswordSchema), userController.changePassword);
+router.post('/change-password', authBridge, validateRequest(changePasswordSchema), userController.changePassword);
 
 /**
  * @swagger
@@ -167,7 +169,7 @@ router.post('/change-password', authMiddleware, validateRequest(changePasswordSc
  *                       isActive:
  *                         type: boolean
  */
-router.get('/sessions', authMiddleware, userController.getSessions);
+router.get('/sessions', authBridge, userController.getSessions);
 
 /**
  * @swagger
@@ -204,7 +206,7 @@ router.get('/sessions', authMiddleware, userController.getSessions);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete('/sessions/:sessionId', authMiddleware, userController.revokeSession);
+router.delete('/sessions/:sessionId', authBridge, userController.revokeSession);
 
 /**
  * @swagger
@@ -230,7 +232,7 @@ router.delete('/sessions/:sessionId', authMiddleware, userController.revokeSessi
  *                 revokedCount:
  *                   type: number
  */
-router.post('/sessions/revoke-all', authMiddleware, userController.revokeAllSessions);
+router.post('/sessions/revoke-all', authBridge, userController.revokeAllSessions);
 
 /**
  * @swagger
@@ -272,7 +274,6 @@ router.post('/sessions/revoke-all', authMiddleware, userController.revokeAllSess
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.delete('/delete-account', authMiddleware, userController.deleteAccount);
+router.delete('/delete-account', authBridge, userController.deleteAccount);
 
 export default router;
-

@@ -1,0 +1,82 @@
+import { Request, Response, NextFunction } from 'express';
+import JWTService from '../../lib/jwt';
+
+function pickToken(req: Request): string | null {
+  // 1) Authorization (case-insensitive), aceita "Bearer <t>" ou só "<t>"
+  const authHeader =
+    (req.headers['authorization'] as string) ||
+    (req.headers['Authorization'] as any);
+
+  if (authHeader && typeof authHeader === 'string') {
+    const parts = authHeader.trim().split(/\s+/);
+    if (parts.length === 2 && /^Bearer$/i.test(parts[0])) {
+      return parts[1].trim();
+    }
+    // Se veio sem "Bearer", tenta usar o próprio valor
+    if (parts.length === 1) {
+      return parts[0].trim();
+    }
+  }
+
+  // 2) x-access-token
+  const xToken = (req.headers['x-access-token'] as string) || '';
+  if (xToken) return xToken.trim();
+
+  // 3) Cookie: accessToken / token
+  try {
+    const c: any = (req as any).cookies || {};
+    if (c.accessToken) return String(c.accessToken).trim();
+    if (c.token) return String(c.token).trim();
+  } catch { /* ignore */ }
+
+  // 4) Query param ?token=
+  if (typeof req.query?.token === 'string') {
+    return (req.query.token as string).trim();
+  }
+
+  return null;
+}
+
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    const raw = pickToken(req);
+    if (!raw) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token de acesso não fornecido',
+        code: 'NO_TOKEN',
+      });
+    }
+
+    const token = raw.replace(/^Bearer\s+/i, '').trim();
+    const payload = JWTService.verifyAccessToken(token);
+    // Payload esperado: { userId, email, role, iat, exp, ... }
+    if (!payload || !payload.userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Token inválido ou expirado',
+        code: 'INVALID_TOKEN',
+      });
+    }
+
+    // Anexa usuário mínimo no req; controllers podem enriquecer via DB se precisarem
+    (req as any).user = {
+      id: payload.userId,
+      email: payload.email,
+      role: payload.role ?? 'USER',
+      jwt: payload,
+    };
+
+    return next();
+  } catch (err: any) {
+    // Evita derrubar request, responde 401 com contexto limpo
+    console.error('❌ authMiddleware error:', err?.message || err);
+    return res.status(401).json({
+      success: false,
+      message: 'Token inválido ou expirado',
+      code: 'INVALID_TOKEN',
+    });
+  }
+}
+
+export default authMiddleware;

@@ -1,0 +1,16 @@
+import { Router } from 'express';
+import normalizeAuthHeader from '../middlewares/normalizeAuthHeader';
+import requireAuth from '../middlewares/requireAuth';
+
+// Mantemos os MESMOS handlers já usados no singular:
+import { listReferrals } from '../controllers/affiliate.controller';          // GET /referrals
+import getAffiliateStats from '../modules/affiliate/affiliate.controller';    // GET /stats
+
+const router = Router();
+router.use(normalizeAuthHeader, requireAuth);
+
+// Alias plural -> mesma lógica do singular
+router.get('/referrals', listReferrals);
+router.get('/stats', getAffiliateStats);
+
+export default router;

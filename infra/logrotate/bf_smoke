@@ -1,0 +1,9 @@
+/var/log/bf_smoke.log {
+  su root root
+  weekly
+  rotate 8
+  missingok
+  notifempty
+  compress
+  create 0644 root root
+}
