@@ -1,0 +1,7 @@
+[allowlist]
+# Exemplos de strings seguras e esperadas
+regexes = [
+  "search_path=public",
+  "BEGIN;|COMMIT;|SECURITY DEFINER",
+  "https://betforbes\\.com/api/health"
+]
